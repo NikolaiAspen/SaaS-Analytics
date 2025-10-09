@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MRR Grunnlag - SaaS Analytics</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            margin-bottom: 8px;
+        }
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .summary-card {
+            background: rgba(18, 25, 51, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            padding: 16px;
+        }
+
+        .summary-card h3 {
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+
+        .summary-card .value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            color: var(--ink);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        th {
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            color: var(--ink);
+        }
+
+        .number {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        a.button {
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: #0f1530;
+            color: var(--ink);
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        a.button:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(15, 21, 48, 0.9);
+            transform: translateY(-1px);
+        }
+
+        .info {
+            background: rgba(159, 177, 255, 0.1);
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            color: var(--muted);
+            font-size: 14px;
+            border-left: 3px solid var(--muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 id="pageTitle">MRR Beregningsgrunnlag</h1>
+            <p style="color: var(--muted); margin-top: 8px;" id="pageSubtitle">Detaljert oversikt over hvordan MRR beregnes</p>
+        </header>
+
+        <div class="card" id="snapshotCard" style="display: none;">
+            <h2>📊 Månedlige nøkkeltall</h2>
+            <div class="info" style="background: rgba(61, 220, 151, 0.1); border-left-color: var(--good);">
+                ✓ Disse tallene kommer fra den lagrede månedlige snapshoten, basert på Zoho sine MRR Details rapporter.
+            </div>
+            <div class="summary" id="snapshotMetrics">
+                <!-- Will be populated by JavaScript -->
+            </div>
+        </div>
+
+        <div class="actions">
+            <a href="/api/dashboard" class="button">Tilbake til Dashboard</a>
+            <a href="/api/trends" class="button">Se månedlige trender</a>
+        </div>
+    </div>
+
+    <script>
+        async function loadData() {
+            try {
+                // Get month from URL parameter
+                const urlParams = new URLSearchParams(window.location.search);
+                const month = urlParams.get('month');
+
+                // Build API URL
+                let apiUrl = '/api/mrr-breakdown';
+                if (month) {
+                    apiUrl += `?month=${month}`;
+                }
+
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    // Update title if showing specific month
+                    if (data.month) {
+                        const monthDate = new Date(data.month + '-01');
+                        const monthName = monthDate.toLocaleDateString('no-NO', { year: 'numeric', month: 'long' });
+                        document.getElementById('pageTitle').textContent = `MRR Grunnlag - ${monthName.charAt(0).toUpperCase() + monthName.slice(1)}`;
+                        document.getElementById('pageSubtitle').textContent = `Beregnet per ${data.as_of_date || 'slutten av måneden'}`;
+
+                        // Show snapshot data if available
+                        if (data.snapshot) {
+                            displaySnapshotMetrics(data.snapshot);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading data:', error);
+            }
+        }
+
+        function displaySnapshotMetrics(snapshot) {
+            document.getElementById('snapshotCard').style.display = 'block';
+
+            const html = `
+                <div class="summary-card">
+                    <h3>MRR (Zoho)</h3>
+                    <div class="value">${formatNumber(snapshot.mrr)} kr</div>
+                </div>
+                <div class="summary-card">
+                    <h3>ARR</h3>
+                    <div class="value">${formatNumber(snapshot.arr)} kr</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Kunder</h3>
+                    <div class="value">${snapshot.total_customers}</div>
+                </div>
+                <div class="summary-card">
+                    <h3>ARPU</h3>
+                    <div class="value">${formatNumber(snapshot.arpu)} kr</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Ny MRR</h3>
+                    <div class="value" style="color: var(--good);">${formatNumber(snapshot.new_mrr)} kr</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Churned MRR</h3>
+                    <div class="value" style="color: var(--bad);">${formatNumber(snapshot.churned_mrr)} kr</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Net MRR</h3>
+                    <div class="value" style="color: ${snapshot.net_mrr >= 0 ? 'var(--good)' : 'var(--bad)'};">${snapshot.net_mrr >= 0 ? '+' : ''}${formatNumber(snapshot.net_mrr)} kr</div>
+                </div>
+            `;
+            document.getElementById('snapshotMetrics').innerHTML = html;
+        }
+
+        function formatNumber(num) {
+            return Math.round(num).toLocaleString('no-NO');
+        }
+
+        loadData();
+    </script>
+</body>
+</html>

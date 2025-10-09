@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(test:*)",
+      "Read(//c/Users/nikolai/Downloads/**)",
+      "Bash(python:*)",
+      "WebFetch(domain:www.zoho.com)",
+      "Bash(pip install:*)",
+      "Bash(del batch_import.py check_excel_files.py test_zoho_reports.py)",
+      "Bash(dir:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(.venvScriptspython.exe -c \"\n# Test if we can import the model\nfrom models.subscription import ChurnedCustomer\nprint(''ChurnedCustomer model imported successfully'')\nprint(f''Table name: {ChurnedCustomer.__tablename__}'')\n\")",
+      "Bash(curl:*)",
+      "Bash(taskkill:*)",
+      "Bash(find:*)",
+      "Bash(timeout:*)",
+      "Bash(del /S /Q __pycache__)",
+      "Bash(del /S /Q models__pycache__)",
+      "Bash(netstat:*)",
+      "Bash(awk:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

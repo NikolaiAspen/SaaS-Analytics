@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SaaS Analytics{% endblock %}</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+            --sidebar-width: 240px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            min-height: 100vh;
+            display: flex;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: rgba(18, 25, 51, 0.95);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 24px 0;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .sidebar-logo {
+            padding: 0 20px 20px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            margin-bottom: 20px;
+        }
+
+        .sidebar-logo h1 {
+            font-size: 20px;
+            color: var(--ink);
+            margin-bottom: 4px;
+        }
+
+        .sidebar-logo .subtitle {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .sidebar-nav {
+            padding: 0 12px;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            margin: 4px 0;
+            color: var(--muted);
+            text-decoration: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--ink);
+        }
+
+        .nav-item.active {
+            background: rgba(61, 220, 151, 0.15);
+            color: var(--good);
+            border-left: 3px solid var(--good);
+            padding-left: 13px;
+        }
+
+        .nav-item .icon {
+            margin-right: 12px;
+            font-size: 16px;
+        }
+
+        .nav-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.06);
+            margin: 16px 12px;
+        }
+
+        .nav-section-title {
+            padding: 8px 16px;
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+
+        /* Main content */
+        .main-content {
+            margin-left: var(--sidebar-width);
+            flex: 1;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            margin: 0;
+        }
+
+        .ver {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            color: var(--ink);
+        }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                margin-left: 0;
+            }
+
+            .mobile-menu-btn {
+                display: block;
+                position: fixed;
+                top: 20px;
+                left: 20px;
+                z-index: 101;
+                background: var(--panel);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                color: var(--ink);
+                padding: 12px;
+                border-radius: 10px;
+                cursor: pointer;
+            }
+        }
+
+        {% block extra_styles %}{% endblock %}
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="sidebar-logo">
+            <h1>SaaS Analytics</h1>
+            <div class="subtitle">Dashboard</div>
+        </div>
+
+        <div class="sidebar-nav">
+            <a href="/api/dashboard" class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
+                <span class="icon">📊</span>
+                Dashboard
+            </a>
+
+            <a href="/api/trends" class="nav-item {% if active_page == 'trends' %}active{% endif %}">
+                <span class="icon">📈</span>
+                Månedlige Trender
+            </a>
+
+            <a href="/api/forecast" class="nav-item {% if active_page == 'forecast' %}active{% endif %}">
+                <span class="icon">🔮</span>
+                MRR Forecast
+            </a>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section-title">Analyse</div>
+
+            <a href="/api/drilldown/mrr" class="nav-item">
+                <span class="icon">💰</span>
+                MRR Grunnlag
+            </a>
+
+            <a href="/api/drilldown/customers" class="nav-item">
+                <span class="icon">👥</span>
+                Kunder
+            </a>
+
+            <a href="/api/drilldown/churn" class="nav-item">
+                <span class="icon">📉</span>
+                Churn
+            </a>
+
+            <a href="/api/drilldown/subscriptions" class="nav-item">
+                <span class="icon">📋</span>
+                Abonnementer
+            </a>
+
+            <a href="/api/drilldown/arpu" class="nav-item">
+                <span class="icon">💵</span>
+                ARPU
+            </a>
+
+            <a href="/api/drilldown/new-mrr" class="nav-item">
+                <span class="icon">✨</span>
+                Ny MRR
+            </a>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section-title">System</div>
+
+            <a href="/api/documents" class="nav-item {% if active_page == 'documents' %}active{% endif %}">
+                <span class="icon">📄</span>
+                Importerte Filer
+            </a>
+
+            <a href="/api/guide" class="nav-item {% if active_page == 'guide' %}active{% endif %}">
+                <span class="icon">📖</span>
+                Brukerveiledning
+            </a>
+
+            <a href="/api/debug" class="nav-item" style="opacity: 0.6;">
+                <span class="icon">🔍</span>
+                Database Info
+            </a>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="container">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

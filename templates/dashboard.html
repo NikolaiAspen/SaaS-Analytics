@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaaS Analytics Dashboard</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 240px;
+            height: 100vh;
+            background: rgba(18, 25, 51, 0.95);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .sidebar-logo {
+            padding: 24px 20px;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--ink);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .sidebar-nav {
+            padding: 12px 0;
+        }
+
+        .nav-section {
+            padding: 20px 0 8px 0;
+        }
+
+        .nav-section-title {
+            padding: 0 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 10px 20px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--ink);
+        }
+
+        .nav-link.active {
+            background: rgba(61, 220, 151, 0.15);
+            color: var(--good);
+            border-left-color: var(--good);
+        }
+
+        .nav-link-icon {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        .nav-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.06);
+            margin: 12px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            margin-left: 240px;
+            padding: 20px;
+        }
+
+        header {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            margin: 0;
+        }
+
+        .ver {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            color: var(--ink);
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .kpi {
+            padding: 16px;
+            border-radius: 14px;
+            background: #0f1530;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            transition: all 0.2s;
+        }
+
+        .kpi:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+            transform: translateY(-2px);
+        }
+
+        .kpi h3 {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: var(--muted);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .kpi .val {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .good .val {
+            color: var(--good);
+        }
+
+        .bad .val {
+            color: var(--bad);
+        }
+
+        .warn .val {
+            color: var(--warn);
+        }
+
+        .kpi .subtext {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        #narrativeBox {
+            margin-top: 20px;
+            line-height: 1.7;
+        }
+
+        #narrativeBox h3 {
+            margin: 16px 0 10px 0;
+            font-size: 18px;
+            color: var(--ink);
+        }
+
+        #narrativeBox h4 {
+            margin: 14px 0 8px 0;
+            font-size: 16px;
+            color: var(--muted);
+        }
+
+        #narrativeBox p {
+            margin: 8px 0;
+            color: var(--muted);
+            font-size: 15px;
+        }
+
+        #narrativeBox ul {
+            margin: 8px 0 12px 20px;
+            color: var(--muted);
+        }
+
+        #narrativeBox li {
+            margin: 6px 0;
+        }
+
+        #narrativeBox b {
+            color: var(--ink);
+            font-weight: 600;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        button, a.button {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: #0f1530;
+            color: var(--ink);
+            padding: 12px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+
+        button:hover, a.button:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(15, 21, 48, 0.9);
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: transparent;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #65398d 100%);
+            border-color: transparent;
+        }
+
+        .info-note {
+            background: rgba(159, 177, 255, 0.1);
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            color: var(--muted);
+            font-size: 14px;
+            border-left: 3px solid var(--muted);
+        }
+
+        @media (max-width: 768px) {
+            .kpi-grid {
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            }
+
+            .actions {
+                flex-direction: column;
+            }
+
+            button, a.button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-logo">SaaS Analytics</div>
+        <nav class="sidebar-nav">
+            <a href="/api/dashboard" class="nav-link active">
+                <span class="nav-link-icon">📊</span>
+                <span>Dashboard</span>
+            </a>
+            <a href="/api/trends" class="nav-link">
+                <span class="nav-link-icon">📈</span>
+                <span>Månedlige Trender</span>
+            </a>
+            <a href="/api/forecast" class="nav-link">
+                <span class="nav-link-icon">🔮</span>
+                <span>MRR Forecast</span>
+            </a>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">ANALYSE</div>
+                <a href="/api/drilldown/mrr" class="nav-link">
+                    <span class="nav-link-icon">💰</span>
+                    <span>MRR Grunnlag</span>
+                </a>
+                <a href="/api/drilldown/customers" class="nav-link">
+                    <span class="nav-link-icon">👥</span>
+                    <span>Kunder</span>
+                </a>
+                <a href="/api/drilldown/churn" class="nav-link">
+                    <span class="nav-link-icon">📉</span>
+                    <span>Churn</span>
+                </a>
+                <a href="/api/drilldown/subscriptions" class="nav-link">
+                    <span class="nav-link-icon">📋</span>
+                    <span>Abonnementer</span>
+                </a>
+                <a href="/api/drilldown/arpu" class="nav-link">
+                    <span class="nav-link-icon">💵</span>
+                    <span>ARPU</span>
+                </a>
+                <a href="/api/drilldown/new-mrr" class="nav-link">
+                    <span class="nav-link-icon">✨</span>
+                    <span>Ny MRR</span>
+                </a>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">SYSTEM</div>
+                <a href="/api/documents" class="nav-link">
+                    <span class="nav-link-icon">📄</span>
+                    <span>Importerte Filer</span>
+                </a>
+                <a href="/api/guide" class="nav-link">
+                    <span class="nav-link-icon">📖</span>
+                    <span>Brukerveiledning</span>
+                </a>
+                <a href="/api/debug" class="nav-link" style="opacity: 0.6;">
+                    <span class="nav-link-icon">🔍</span>
+                    <span>Database Info</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>SaaS Analytics Dashboard</h1>
+            <span class="ver">Oppdatert: {{ metrics.snapshot_date.strftime('%d.%m.%Y %H:%M') }}</span>
+        </header>
+
+        {% if missing_snapshot_warning %}
+        <div class="card" style="background: rgba(255, 209, 102, 0.1); border-color: var(--warn); border-left: 4px solid var(--warn);">
+            <h2 style="color: var(--warn); margin-bottom: 8px;">⚠️ Påminnelse</h2>
+            <p style="color: var(--ink); margin: 0;">{{ missing_snapshot_warning }}</p>
+        </div>
+        {% endif %}
+
+        <div style="margin-bottom: 16px;">
+            <button onclick="syncData()" style="background: var(--good); border: none; color: #0b1020; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500;">🔄 Synkroniser subscriptions fra Zoho</button>
+        </div>
+        <div id="syncStatus" style="display: none; margin-top: 12px; padding: 12px; border-radius: 10px; font-size: 14px;"></div>
+
+        <div class="card">
+            <h2>💬 Spør Niko om tallene</h2>
+            <p style="color: var(--muted); margin-bottom: 16px; font-size: 14px;">
+                Still spørsmål om metrics og trender. For eksempel: "Hvorfor økte MRR i forrige måned?" eller "Hva er den største bekymringen?"
+            </p>
+            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                <input
+                    type="text"
+                    id="aiQuestion"
+                    placeholder="Still et spørsmål..."
+                    style="flex: 1; padding: 12px 16px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); background: #0f1530; color: var(--ink); font-size: 14px;"
+                    onkeypress="if(event.key === 'Enter') askAI()"
+                />
+                <button onclick="askAI()" style="padding: 12px 24px;">Spør Niko</button>
+            </div>
+            <div id="aiAnswer" style="display: none; background: rgba(15, 21, 48, 0.6); padding: 16px; border-radius: 10px; border-left: 3px solid var(--good); white-space: pre-line;"></div>
+        </div>
+
+        <div class="card">
+            <h2>Nøkkeltall</h2>
+            <div class="kpi-grid">
+                <div class="kpi" onclick="window.location.href='/api/drilldown/mrr'" style="cursor: pointer;">
+                    <h3>MRR</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.mrr) }} kr</div>
+                    <div class="subtext">Månedlig · Klikk for detaljer</div>
+                </div>
+
+                <div class="kpi" onclick="window.location.href='/api/drilldown/mrr'" style="cursor: pointer;">
+                    <h3>ARR</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.arr) }} kr</div>
+                    <div class="subtext">Årlig · Klikk for detaljer</div>
+                </div>
+
+                <div class="kpi good" onclick="window.location.href='/api/drilldown/arpu'" style="cursor: pointer;">
+                    <h3>ARPU</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.arpu) }} kr</div>
+                    <div class="subtext">Per kunde · Klikk for detaljer</div>
+                </div>
+
+                <div class="kpi" onclick="window.location.href='/api/drilldown/customers'" style="cursor: pointer;">
+                    <h3>Kunder</h3>
+                    <div class="val">{{ metrics.total_customers }}</div>
+                    <div class="subtext">Aktive · Klikk for detaljer</div>
+                </div>
+
+                <div class="kpi" onclick="window.location.href='/api/drilldown/subscriptions'" style="cursor: pointer;">
+                    <h3>Abonnementer</h3>
+                    <div class="val">{{ metrics.active_subscriptions }}</div>
+                    <div class="subtext">Live · Klikk for detaljer</div>
+                </div>
+
+                <div class="kpi bad" onclick="window.location.href='/api/drilldown/churn'" style="cursor: pointer;">
+                    <h3>Kundefrafall</h3>
+                    <div class="val">{{ "{:.1f}".format(metrics.customer_churn_rate) }}%</div>
+                    <div class="subtext">{{ metrics.churned_customers }} siste 30d · Klikk for detaljer</div>
+                </div>
+
+                <div class="kpi bad" onclick="window.location.href='/api/drilldown/churn'" style="cursor: pointer;">
+                    <h3>Revenue Churn</h3>
+                    <div class="val">{{ "{:.1f}".format(metrics.revenue_churn_rate) }}%</div>
+                    <div class="subtext">Siste 30d · Klikk for detaljer</div>
+                </div>
+
+                <div class="kpi good" onclick="window.location.href='/api/drilldown/new-mrr'" style="cursor: pointer;">
+                    <h3>Ny MRR</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.new_mrr) }} kr</div>
+                    <div class="subtext">Siste 30d · Klikk for detaljer</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        async function syncData() {
+            const statusDiv = document.getElementById('syncStatus');
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = 'rgba(159, 177, 255, 0.1)';
+            statusDiv.style.color = 'var(--muted)';
+            statusDiv.innerHTML = '🔄 Synkroniserer subscriptions fra Zoho Billing...';
+
+            try {
+                const response = await fetch('/api/sync', { method: 'POST' });
+                const data = await response.json();
+
+                if (response.ok) {
+                    statusDiv.style.background = 'rgba(61, 220, 151, 0.1)';
+                    statusDiv.style.color = 'var(--good)';
+                    statusDiv.innerHTML = `✅ ${data.message}`;
+
+                    // Reload page after 2 seconds
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    throw new Error(data.detail || 'Synkronisering feilet');
+                }
+            } catch (error) {
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                statusDiv.innerHTML = `❌ Feil: ${error.message}`;
+            }
+        }
+
+        async function askAI() {
+            const input = document.getElementById('aiQuestion');
+            const answerDiv = document.getElementById('aiAnswer');
+            const question = input.value.trim();
+
+            if (!question) {
+                return;
+            }
+
+            answerDiv.style.display = 'block';
+            answerDiv.innerHTML = '⏳ Spør Niko...';
+
+            try {
+                const response = await fetch('/api/ask-ai', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ question: question })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    answerDiv.innerHTML = `
+                        <div style="padding: 16px; background: rgba(159, 177, 255, 0.05); border-radius: 8px; margin-bottom: 12px;">
+                            <strong style="color: var(--muted); font-size: 13px;">SPØRSMÅL</strong>
+                            <p style="color: var(--ink); margin-top: 6px; font-size: 15px;">${question}</p>
+                        </div>
+                        <div style="padding: 16px; background: rgba(61, 220, 151, 0.05); border-radius: 8px;">
+                            <strong style="color: var(--good); font-size: 13px;">NIKO-ANALYSE</strong>
+                            <div style="color: var(--ink); margin-top: 12px; line-height: 1.7; white-space: pre-line;">${data.answer}</div>
+                        </div>
+                    `;
+                } else {
+                    answerDiv.innerHTML = `<div style="padding: 12px; background: rgba(255, 107, 107, 0.1); border-radius: 8px; color: var(--bad);">❌ <strong>Feil:</strong> ${data.detail || 'Ukjent feil'}</div>`;
+                }
+            } catch (error) {
+                answerDiv.innerHTML = `❌ Feil: ${error.message}`;
+                console.error('Niko chat error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

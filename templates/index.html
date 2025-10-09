@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaaS Analytics</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 48px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        header {
+            margin-bottom: 32px;
+        }
+
+        h1 {
+            font-size: 32px;
+            color: var(--ink);
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        .card {
+            background: rgba(15, 21, 48, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            color: var(--ink);
+        }
+
+        .buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        button, a.button {
+            appearance: none;
+            background: #0f1530;
+            color: var(--ink);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 14px 20px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            text-align: center;
+            display: block;
+        }
+
+        button:hover, a.button:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(15, 21, 48, 0.9);
+            transform: translateY(-1px);
+        }
+
+        button:active, a.button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: transparent;
+        }
+
+        .primary:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #65398d 100%);
+            border-color: transparent;
+        }
+
+        .secondary {
+            background: var(--good);
+            border-color: transparent;
+            color: #0b1020;
+        }
+
+        .secondary:hover {
+            background: #32c77e;
+            border-color: transparent;
+        }
+
+        #status {
+            margin-top: 16px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 14px;
+            display: none;
+            border: 1px solid;
+        }
+
+        #status.success {
+            background: rgba(61, 220, 151, 0.1);
+            color: var(--good);
+            border-color: rgba(61, 220, 151, 0.3);
+            display: block;
+        }
+
+        #status.error {
+            background: rgba(255, 107, 107, 0.1);
+            color: var(--bad);
+            border-color: rgba(255, 107, 107, 0.3);
+            display: block;
+        }
+
+        #status.loading {
+            background: rgba(159, 177, 255, 0.1);
+            color: var(--muted);
+            border-color: rgba(159, 177, 255, 0.3);
+            display: block;
+        }
+
+        .info-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .info-list li {
+            padding: 8px 0;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .info-list li::before {
+            content: "→";
+            margin-right: 8px;
+            color: var(--good);
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 32px 24px;
+            }
+        }
+
+        /* Loading screen */
+        #loadingScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease-out;
+        }
+
+        #loadingScreen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loader {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(159, 177, 255, 0.1);
+            border-top: 4px solid var(--good);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 24px;
+            color: var(--muted);
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .loading-subtext {
+            margin-top: 8px;
+            color: var(--muted);
+            font-size: 13px;
+            opacity: 0.7;
+        }
+
+        #mainContent {
+            opacity: 0;
+            transition: opacity 0.5s ease-in;
+        }
+
+        #mainContent.visible {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loadingScreen">
+        <div class="loader"></div>
+        <div class="loading-text">Starter SaaS Analytics...</div>
+        <div class="loading-subtext">Laster data fra Zoho</div>
+    </div>
+
+    <!-- Main Content -->
+    <div id="mainContent" class="container">
+        <header>
+            <h1>SaaS Analytics</h1>
+            <p class="subtitle">Analyser MRR, churn, og andre nøkkeltall fra Zoho Billing med AI-drevne innsikter</p>
+        </header>
+
+        <div class="card">
+            <h2>Kom i gang</h2>
+            <div class="buttons">
+                <button id="syncBtn" class="primary" onclick="syncData()">
+                    Synkroniser data fra Zoho
+                </button>
+                <button id="importBtn" class="secondary" onclick="showImportSection()">
+                    Importer MRR Details (Excel)
+                </button>
+                <a href="/api/dashboard" class="button secondary">
+                    Åpne Dashboard
+                </a>
+                <a href="/api/documents" class="button">
+                    📄 Se importerte dokumenter
+                </a>
+            </div>
+            <div id="status"></div>
+        </div>
+
+        <div class="card" id="importSection" style="display: none;">
+            <h2>📊 Importer Zoho MRR Details rapporter</h2>
+            <p style="color: var(--muted); margin-bottom: 16px;">
+                Last ned MRR Details fra Zoho for hver måned du vil importere. Rapportene må ligge i Downloads-mappen.
+            </p>
+
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; color: var(--muted);">Hvordan få MRR Details fra Zoho:</label>
+                <ol style="color: var(--muted); font-size: 14px; line-height: 1.8; margin-left: 20px;">
+                    <li>Gå til Reports → MRR Insights i Zoho Billing</li>
+                    <li>Velg date range for en måned (f.eks. 2024-09-01 til 2024-09-30)</li>
+                    <li>Klikk "Export" og last ned som Excel</li>
+                    <li>Gi filen et tydelig navn (f.eks. "MRR_Sep_2024.xlsx")</li>
+                    <li>Legg filen i Downloads-mappen</li>
+                </ol>
+            </div>
+
+            <div style="background: rgba(61, 220, 151, 0.1); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+                <strong style="color: var(--good);">💡 Tips:</strong> Last ned for alle måneder (jan-des 2024) på en gang, så importerer vi alle sammen!
+            </div>
+
+            <div id="fileInputs"></div>
+
+            <button onclick="addFileInput()" style="margin-bottom: 12px;">+ Legg til fil</button>
+            <button class="primary" onclick="importAllFiles()">Importer alle filer</button>
+
+            <div id="importStatus" style="margin-top: 16px;"></div>
+        </div>
+
+        <div class="card">
+            <h2>Brukerveiledning</h2>
+            <ul class="info-list">
+                <li><strong>✅ Anbefalt workflow:</strong></li>
+                <li><strong>1. Historiske data:</strong> Klikk "Importer MRR Details (Excel)" og last inn rapporter for siste 12 måneder fra Zoho</li>
+                <li><strong>2. Nåværende måned:</strong> Klikk "Synkroniser data" for å hente live abonnementsdata via API</li>
+                <li><strong>3. Dashboard:</strong> Åpne Dashboard for å se nøkkeltall og AI-analyse (genereres automatisk)</li>
+                <li><strong>4. Månedlig:</strong> Ved månedsskifte, eksporter forrige måned fra Zoho og importer Excel-filen</li>
+            </ul>
+
+            <div style="margin-top: 16px; padding: 12px; background: rgba(61, 220, 151, 0.1); border-left: 3px solid var(--good); border-radius: 8px;">
+                <strong>💡 Hvorfor denne løsningen?</strong><br>
+                • <strong>Historiske måneder:</strong> Excel-import gir 100% nøyaktige tall fra Zoho (ingen beregninger)<br>
+                • <strong>Nåværende måned:</strong> API-sync gir sanntidsdata for dagens situasjon<br>
+                • <strong>Best of both worlds:</strong> Nøyaktig historikk + live data!
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Hide loading screen and show content when page is ready
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                document.getElementById('loadingScreen').classList.add('hidden');
+                document.getElementById('mainContent').classList.add('visible');
+            }, 500); // Small delay to ensure smooth transition
+        });
+
+        let fileCount = 0;
+
+        function showImportSection() {
+            const section = document.getElementById('importSection');
+            section.style.display = section.style.display === 'none' ? 'block' : 'none';
+            if (section.style.display === 'block' && fileCount === 0) {
+                addFileInput();
+                addFileInput();
+                addFileInput();
+            }
+        }
+
+        function addFileInput() {
+            fileCount++;
+            const container = document.getElementById('fileInputs');
+            const div = document.createElement('div');
+            div.style.marginBottom = '12px';
+            div.innerHTML = `
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <input type="text" id="filename_${fileCount}" placeholder="Filnavn (f.eks. MRR_Sep_2024.xlsx)"
+                           style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.12); background: #0f1530; color: var(--ink);">
+                    <input type="text" id="month_${fileCount}" placeholder="YYYY-MM (f.eks. 2024-09)"
+                           style="width: 150px; padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.12); background: #0f1530; color: var(--ink);">
+                    <button onclick="this.parentElement.parentElement.remove()" style="padding: 10px 16px;">Fjern</button>
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        async function importAllFiles() {
+            const importStatus = document.getElementById('importStatus');
+            importStatus.innerHTML = '<div style="color: var(--muted);">Importerer filer...</div>';
+
+            const results = [];
+            const errors = [];
+
+            for (let i = 1; i <= fileCount; i++) {
+                const filenameEl = document.getElementById(`filename_${i}`);
+                const monthEl = document.getElementById(`month_${i}`);
+
+                if (!filenameEl || !monthEl) continue;
+
+                const filename = filenameEl.value.trim();
+                const month = monthEl.value.trim();
+
+                if (!filename || !month) continue;
+
+                try {
+                    const filePath = `c:\\\\Users\\\\nikolai\\\\Downloads\\\\${filename}`;
+
+                    importStatus.innerHTML += `<div style="color: var(--muted); margin-top: 8px;">⏳ Importerer ${filename} (${month})...</div>`;
+
+                    const response = await fetch('/api/import-zoho-mrr-details', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ file_path: filePath, month: month })
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        results.push(`✓ ${month}: ${data.mrr.toLocaleString('no-NO')} kr (${data.customers} kunder, ${data.subscriptions} abonnementer)`);
+                    } else {
+                        errors.push(`✗ ${month}: ${data.detail}`);
+                    }
+                } catch (error) {
+                    errors.push(`✗ ${month}: ${error.message}`);
+                }
+            }
+
+            let html = '<div style="margin-top: 16px;">';
+            if (results.length > 0) {
+                html += '<div style="background: rgba(61, 220, 151, 0.1); padding: 12px; border-radius: 8px; border-left: 3px solid var(--good); margin-bottom: 12px;">';
+                html += '<strong style="color: var(--good);">✓ Importert ' + results.length + ' måneder:</strong><br>';
+                html += results.map(r => `<div style="margin-top: 4px;">${r}</div>`).join('');
+                html += '</div>';
+            }
+            if (errors.length > 0) {
+                html += '<div style="background: rgba(255, 107, 107, 0.1); padding: 12px; border-radius: 8px; border-left: 3px solid var(--bad);">';
+                html += '<strong style="color: var(--bad);">Feil:</strong><br>';
+                html += errors.map(e => `<div style="margin-top: 4px;">${e}</div>`).join('');
+                html += '</div>';
+            }
+            html += '</div>';
+
+            importStatus.innerHTML = html;
+        }
+
+        async function syncData() {
+            const btn = document.getElementById('syncBtn');
+            const status = document.getElementById('status');
+
+            btn.disabled = true;
+            status.className = 'loading';
+            status.textContent = 'Synkroniserer data fra Zoho Billing...';
+
+            try {
+                // Force full sync to avoid date issues
+                const response = await fetch('/api/sync?force_full=true', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    status.className = 'success';
+                    status.textContent = `✓ ${data.message}`;
+                } else {
+                    throw new Error(data.detail || 'Synkronisering feilet');
+                }
+            } catch (error) {
+                status.className = 'error';
+                status.textContent = `✗ Feil: ${error.message}`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+    </script>
+</body>
+</html>

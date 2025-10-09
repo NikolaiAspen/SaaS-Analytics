@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Importerte Dokumenter - SaaS Analytics</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 240px;
+            height: 100vh;
+            background: rgba(18, 25, 51, 0.95);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .sidebar-logo {
+            padding: 24px 20px;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--ink);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .sidebar-nav {
+            padding: 12px 0;
+        }
+
+        .nav-section {
+            padding: 20px 0 8px 0;
+        }
+
+        .nav-section-title {
+            padding: 0 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 10px 20px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--ink);
+        }
+
+        .nav-link.active {
+            background: rgba(61, 220, 151, 0.15);
+            color: var(--good);
+            border-left-color: var(--good);
+        }
+
+        .nav-link-icon {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        .nav-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.06);
+            margin: 12px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            margin-left: 240px;
+            padding: 20px;
+        }
+
+        header {
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 15px;
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            color: var(--ink);
+        }
+
+        .info-box {
+            background: rgba(61, 220, 151, 0.1);
+            border-left: 3px solid var(--good);
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .warning-box {
+            background: rgba(255, 209, 102, 0.1);
+            border-left: 3px solid var(--warn);
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            color: var(--warn);
+            font-size: 14px;
+        }
+
+        .docs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .doc-card {
+            background: #0f1530;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            padding: 20px;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .doc-card:hover {
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        .doc-card.missing {
+            background: rgba(255, 209, 102, 0.05);
+            border-color: rgba(255, 209, 102, 0.3);
+            border-style: dashed;
+        }
+
+        .doc-month {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--ink);
+            margin-bottom: 8px;
+        }
+
+        .doc-card.missing .doc-month {
+            color: var(--warn);
+        }
+
+        .doc-stats {
+            font-size: 13px;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
+
+        .doc-date {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .doc-mrr {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--good);
+            margin-top: 8px;
+        }
+
+        .missing-text {
+            color: var(--warn);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        button, a.button {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: #0f1530;
+            color: var(--ink);
+            padding: 12px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+
+        button:hover, a.button:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(15, 21, 48, 0.9);
+            transform: translateY(-1px);
+        }
+
+        .primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: transparent;
+        }
+
+        .primary:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #65398d 100%);
+        }
+
+        @media (max-width: 768px) {
+            .docs-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-logo">SaaS Analytics</div>
+        <nav class="sidebar-nav">
+            <a href="/api/dashboard" class="nav-link">
+                <span class="nav-link-icon">📊</span>
+                <span>Dashboard</span>
+            </a>
+            <a href="/api/trends" class="nav-link">
+                <span class="nav-link-icon">📈</span>
+                <span>Månedlige Trender</span>
+            </a>
+            <a href="/api/forecast" class="nav-link">
+                <span class="nav-link-icon">🔮</span>
+                <span>MRR Forecast</span>
+            </a>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">ANALYSE</div>
+                <a href="/api/drilldown/mrr" class="nav-link">
+                    <span class="nav-link-icon">💰</span>
+                    <span>MRR Grunnlag</span>
+                </a>
+                <a href="/api/drilldown/customers" class="nav-link">
+                    <span class="nav-link-icon">👥</span>
+                    <span>Kunder</span>
+                </a>
+                <a href="/api/drilldown/churn" class="nav-link">
+                    <span class="nav-link-icon">📉</span>
+                    <span>Churn</span>
+                </a>
+                <a href="/api/drilldown/subscriptions" class="nav-link">
+                    <span class="nav-link-icon">📋</span>
+                    <span>Abonnementer</span>
+                </a>
+                <a href="/api/drilldown/arpu" class="nav-link">
+                    <span class="nav-link-icon">💵</span>
+                    <span>ARPU</span>
+                </a>
+                <a href="/api/drilldown/new-mrr" class="nav-link">
+                    <span class="nav-link-icon">✨</span>
+                    <span>Ny MRR</span>
+                </a>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">SYSTEM</div>
+                <a href="/api/documents" class="nav-link active">
+                    <span class="nav-link-icon">📄</span>
+                    <span>Importerte Filer</span>
+                </a>
+                <a href="/api/guide" class="nav-link">
+                    <span class="nav-link-icon">📖</span>
+                    <span>Brukerveiledning</span>
+                </a>
+                <a href="/api/debug" class="nav-link" style="opacity: 0.6;">
+                    <span class="nav-link-icon">🔍</span>
+                    <span>Database Info</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>📄 Importerte Dokumenter</h1>
+            <p class="subtitle">Oversikt over alle MRR Details rapporter fra Zoho</p>
+        </header>
+
+        <div class="card">
+            <h2>📥 Importer MRR Details rapport</h2>
+            <p style="color: var(--muted); margin-bottom: 16px; font-size: 14px;">
+                Last opp "MRR Details" Excel-rapport fra Zoho. Filen vil bli importert og lagret automatisk.
+            </p>
+            <form id="uploadForm" style="margin-bottom: 20px;">
+                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                    <input type="file" id="excelFile" accept=".xlsx,.xls" multiple
+                           style="flex: 1; padding: 12px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); background: #0f1530; color: var(--ink); font-size: 14px; cursor: pointer;" />
+                    <button type="submit" class="button primary" style="margin: 0;">
+                        📤 Last opp MRR Details
+                    </button>
+                </div>
+                <p style="color: var(--muted); font-size: 12px; margin-top: 8px;">Du kan velge flere filer samtidig (Ctrl+klikk eller Shift+klikk)</p>
+            </form>
+            <div id="uploadStatus" style="display: none; padding: 12px; border-radius: 10px; font-size: 14px; margin-bottom: 16px;"></div>
+        </div>
+
+        <div class="card">
+            <h2>📉 Importer Churned Customers rapport</h2>
+            <p style="color: var(--muted); margin-bottom: 16px; font-size: 14px;">
+                Last opp "Churned Customers" Excel-rapport fra Zoho for å legge til churn-data til eksisterende måneder.
+            </p>
+            <form id="uploadChurnForm" style="margin-bottom: 20px;">
+                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                    <input type="file" id="churnFile" accept=".xlsx,.xls" multiple
+                           style="flex: 1; padding: 12px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); background: #0f1530; color: var(--ink); font-size: 14px; cursor: pointer;" />
+                    <button type="submit" class="button primary" style="margin: 0;">
+                        📤 Last opp Churn rapport
+                    </button>
+                </div>
+                <p style="color: var(--muted); font-size: 12px; margin-top: 8px;">Du kan velge flere filer samtidig (Ctrl+klikk eller Shift+klikk)</p>
+            </form>
+            <div id="uploadChurnStatus" style="display: none; padding: 12px; border-radius: 10px; font-size: 14px; margin-bottom: 16px;"></div>
+        </div>
+
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0;">Status</h2>
+                <div style="display: flex; gap: 8px; background: #0f1530; border-radius: 10px; padding: 4px; border: 1px solid rgba(255, 255, 255, 0.12);">
+                    <button id="btnMrrView" onclick="switchView('mrr')" style="margin: 0; padding: 8px 16px; border-radius: 8px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; color: white; font-size: 13px;">
+                        📊 MRR Details
+                    </button>
+                    <button id="btnChurnView" onclick="switchView('churn')" style="margin: 0; padding: 8px 16px; border-radius: 8px; background: transparent; border: none; color: var(--muted); font-size: 13px;">
+                        📉 Churn Reports
+                    </button>
+                </div>
+            </div>
+
+            <div id="mrrStatusView">
+                <div class="info-box">
+                    ✓ Alle måneder med importerte MRR Details vises med grønn MRR. Måneder som mangler vises med gult varsel.
+                </div>
+
+                {% if missing_current_month %}
+                <div class="warning-box">
+                    ⚠️ {{ missing_current_month }}
+                </div>
+                {% endif %}
+
+                <div class="docs-grid">
+                    {% for doc in documents %}
+                    <div class="doc-card{% if not doc.has_snapshot %} missing{% endif %}"
+                         {% if doc.has_snapshot %}onclick="window.location.href='/api/mrr-breakdown-page?month={{ doc.month }}'"{% endif %}>
+                        <div class="doc-month">{{ doc.month_name }}</div>
+
+                        {% if doc.has_snapshot %}
+                            <div class="doc-mrr">{{ "{:,.0f}".format(doc.mrr) }} kr</div>
+                            <div class="doc-stats">{{ doc.customers }} kunder • {{ doc.subscriptions }} abonnementer</div>
+                            <div class="doc-stats">ARPU: {{ "{:,.0f}".format(doc.arpu) }} kr</div>
+                            <div class="doc-date">Importert: {{ doc.updated_at.strftime('%d.%m.%Y kl. %H:%M') }}</div>
+                        {% else %}
+                            <div class="missing-text">Ikke importert</div>
+                            <div class="doc-stats" style="color: var(--warn); margin-top: 8px;">Last ned MRR Details fra Zoho</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div id="churnStatusView" style="display: none;">
+                <div class="info-box">
+                    📉 Oversikt over importerte Churned Customers rapporter. Viser churned customers og MRR-tap per måned.
+                </div>
+
+                <div class="docs-grid" id="churnDocsGrid">
+                    <!-- Will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let churnData = null;
+
+        // Switch between MRR and Churn views
+        function switchView(view) {
+            const mrrView = document.getElementById('mrrStatusView');
+            const churnView = document.getElementById('churnStatusView');
+            const btnMrr = document.getElementById('btnMrrView');
+            const btnChurn = document.getElementById('btnChurnView');
+
+            if (view === 'mrr') {
+                mrrView.style.display = 'block';
+                churnView.style.display = 'none';
+                btnMrr.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                btnMrr.style.color = 'white';
+                btnChurn.style.background = 'transparent';
+                btnChurn.style.color = 'var(--muted)';
+            } else {
+                mrrView.style.display = 'none';
+                churnView.style.display = 'block';
+                btnChurn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                btnChurn.style.color = 'white';
+                btnMrr.style.background = 'transparent';
+                btnMrr.style.color = 'var(--muted)';
+
+                // Load churn data if not already loaded
+                if (!churnData) {
+                    loadChurnData();
+                }
+            }
+        }
+
+        // Load churn data from API
+        async function loadChurnData() {
+            try {
+                const response = await fetch('/api/churn-status');
+                const data = await response.json();
+                churnData = data.months;
+                displayChurnData();
+            } catch (error) {
+                document.getElementById('churnDocsGrid').innerHTML = '<p style="color: var(--bad);">Feil ved lasting av churn-data</p>';
+            }
+        }
+
+        // Display churn data
+        function displayChurnData() {
+            const grid = document.getElementById('churnDocsGrid');
+            let html = '';
+
+            if (churnData.length === 0) {
+                html = '<p style="color: var(--muted);">Ingen churned customers rapporter importert ennå</p>';
+            } else {
+                churnData.forEach(month => {
+                    const hasChurn = month.churned_customers > 0;
+                    html += `
+                        <div class="doc-card${hasChurn ? '' : ' missing'}">
+                            <div class="doc-month">${month.month_name}</div>
+                            ${hasChurn ? `
+                                <div class="doc-mrr" style="color: var(--bad);">${month.churned_customers} kunder</div>
+                                <div class="doc-stats">${formatNumber(month.churned_mrr)} kr MRR tapt</div>
+                                ${month.reason_count > 0 ? `<div class="doc-stats">${month.reason_count} ulike årsaker</div>` : ''}
+                                <div class="doc-date">Importert: ${month.updated_at}</div>
+                            ` : `
+                                <div class="missing-text">Ikke importert</div>
+                                <div class="doc-stats" style="color: var(--warn); margin-top: 8px;">Last opp Churned Customers rapport</div>
+                            `}
+                        </div>
+                    `;
+                });
+            }
+
+            grid.innerHTML = html;
+        }
+
+        function formatNumber(num) {
+            return Math.round(num).toLocaleString('no-NO');
+        }
+
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const fileInput = document.getElementById('excelFile');
+            const statusDiv = document.getElementById('uploadStatus');
+
+            if (!fileInput.files || fileInput.files.length === 0) {
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                statusDiv.innerHTML = '❌ Vennligst velg minst én fil';
+                return;
+            }
+
+            const files = Array.from(fileInput.files);
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = 'rgba(159, 177, 255, 0.1)';
+            statusDiv.style.color = 'var(--muted)';
+            statusDiv.innerHTML = `⏳ Importerer ${files.length} fil(er)...`;
+
+            let successCount = 0;
+            let errorCount = 0;
+            let totalCreated = 0;
+            let totalUpdated = 0;
+            let errors = [];
+
+            for (const file of files) {
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    statusDiv.innerHTML = `⏳ Importerer ${file.name} (${successCount + errorCount + 1}/${files.length})...`;
+
+                    const response = await fetch('/api/upload-excel', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        successCount++;
+                        totalCreated += data.snapshots_created.length;
+                        totalUpdated += data.snapshots_updated.length;
+                    } else {
+                        errorCount++;
+                        const errorMsg = data.detail || 'Ukjent feil';
+                        errors.push(`${file.name}: ${errorMsg}`);
+                        console.error(`Feil ved import av ${file.name}:`, errorMsg);
+                    }
+                } catch (error) {
+                    errorCount++;
+                    errors.push(`${file.name}: ${error.message}`);
+                    console.error(`Feil ved import av ${file.name}:`, error);
+                }
+            }
+
+            // Show final result
+            if (errorCount === 0) {
+                statusDiv.style.background = 'rgba(61, 220, 151, 0.1)';
+                statusDiv.style.color = 'var(--good)';
+                statusDiv.innerHTML = `✅ Importert ${successCount} fil(er)!<br><small>Opprettet: ${totalCreated} | Oppdatert: ${totalUpdated}</small>`;
+            } else {
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                const errorList = errors.map(e => `<li>${e}</li>`).join('');
+                statusDiv.innerHTML = `❌ ${successCount} OK, ${errorCount} feilet<br><small>Opprettet: ${totalCreated} | Oppdatert: ${totalUpdated}</small><br><br><strong>Feil:</strong><ul style="margin: 8px 0 0 20px; text-align: left;">${errorList}</ul>`;
+            }
+
+            // Reset form and reload page after 3 seconds (only if successful)
+            fileInput.value = '';
+            if (errorCount === 0) {
+                setTimeout(() => window.location.reload(), 3000);
+            }
+        });
+
+        // Handle churn upload
+        document.getElementById('uploadChurnForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const fileInput = document.getElementById('churnFile');
+            const statusDiv = document.getElementById('uploadChurnStatus');
+
+            if (!fileInput.files || fileInput.files.length === 0) {
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                statusDiv.innerHTML = '❌ Vennligst velg minst én fil';
+                return;
+            }
+
+            const files = Array.from(fileInput.files);
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = 'rgba(159, 177, 255, 0.1)';
+            statusDiv.style.color = 'var(--muted)';
+            statusDiv.innerHTML = `⏳ Importerer ${files.length} churn-rapport(er)...`;
+
+            let successCount = 0;
+            let errorCount = 0;
+            let errors = [];
+
+            for (const file of files) {
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    statusDiv.innerHTML = `⏳ Importerer ${file.name} (${successCount + errorCount + 1}/${files.length})...`;
+
+                    const response = await fetch('/api/upload-churn', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        successCount++;
+                    } else {
+                        errorCount++;
+                        const errorMsg = data.detail || 'Ukjent feil';
+                        errors.push(`${file.name}: ${errorMsg}`);
+                        console.error(`Feil ved import av ${file.name}:`, errorMsg);
+                    }
+                } catch (error) {
+                    errorCount++;
+                    errors.push(`${file.name}: ${error.message}`);
+                    console.error(`Feil ved import av ${file.name}:`, error);
+                }
+            }
+
+            // Show final result
+            if (errorCount === 0) {
+                statusDiv.style.background = 'rgba(61, 220, 151, 0.1)';
+                statusDiv.style.color = 'var(--good)';
+                statusDiv.innerHTML = `✅ Importert ${successCount} churn-rapport(er)!`;
+            } else {
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                const errorList = errors.map(e => `<li>${e}</li>`).join('');
+                statusDiv.innerHTML = `❌ ${successCount} OK, ${errorCount} feilet<br><br><strong>Feil:</strong><ul style="margin: 8px 0 0 20px; text-align: left;">${errorList}</ul>`;
+            }
+
+            // Reset form and reload page after 3 seconds (only if successful)
+            fileInput.value = '';
+            if (errorCount === 0) {
+                setTimeout(() => window.location.reload(), 3000);
+            }
+        });
+    </script>
+</body>
+</html>

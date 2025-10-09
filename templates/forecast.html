@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MRR Forecast - SaaS Analytics</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 240px;
+            height: 100vh;
+            background: rgba(18, 25, 51, 0.95);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .sidebar-logo {
+            padding: 24px 20px;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--ink);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .sidebar-nav {
+            padding: 12px 0;
+        }
+
+        .nav-section {
+            padding: 20px 0 8px 0;
+        }
+
+        .nav-section-title {
+            padding: 0 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 10px 20px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--ink);
+        }
+
+        .nav-link.active {
+            background: rgba(61, 220, 151, 0.15);
+            color: var(--good);
+            border-left-color: var(--good);
+        }
+
+        .nav-link-icon {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        .nav-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.06);
+            margin: 12px 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            margin-left: 240px;
+            padding: 20px;
+        }
+
+        header {
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 30px;
+            margin-bottom: 20px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+
+        .stat {
+            background: rgba(15, 21, 48, 0.6);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .stat-label {
+            color: var(--muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            color: var(--ink);
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .stat.bad .stat-value {
+            color: var(--bad);
+        }
+
+        .stat.good .stat-value {
+            color: var(--good);
+        }
+
+        .stat.warn .stat-value {
+            color: var(--warn);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 30px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th {
+            background: rgba(15, 21, 48, 0.6);
+            padding: 12px;
+            text-align: left;
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .number {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .button {
+            background: rgba(15, 21, 48, 0.9);
+            color: var(--ink);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 10px 20px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-block;
+        }
+
+        .button:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(15, 21, 48, 1);
+            transform: translateY(-1px);
+        }
+
+        .info-box {
+            background: rgba(61, 220, 151, 0.1);
+            border-left: 3px solid var(--good);
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .warning-box {
+            background: rgba(255, 107, 107, 0.1);
+            border-left: 3px solid var(--bad);
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        h2 {
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-logo">SaaS Analytics</div>
+        <nav class="sidebar-nav">
+            <a href="/api/dashboard" class="nav-link">
+                <span class="nav-link-icon">📊</span>
+                <span>Dashboard</span>
+            </a>
+            <a href="/api/trends" class="nav-link">
+                <span class="nav-link-icon">📈</span>
+                <span>Månedlige Trender</span>
+            </a>
+            <a href="/api/forecast" class="nav-link active">
+                <span class="nav-link-icon">🔮</span>
+                <span>MRR Forecast</span>
+            </a>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">ANALYSE</div>
+                <a href="/api/drilldown/mrr" class="nav-link">
+                    <span class="nav-link-icon">💰</span>
+                    <span>MRR Grunnlag</span>
+                </a>
+                <a href="/api/drilldown/customers" class="nav-link">
+                    <span class="nav-link-icon">👥</span>
+                    <span>Kunder</span>
+                </a>
+                <a href="/api/drilldown/churn" class="nav-link">
+                    <span class="nav-link-icon">📉</span>
+                    <span>Churn</span>
+                </a>
+                <a href="/api/drilldown/subscriptions" class="nav-link">
+                    <span class="nav-link-icon">📋</span>
+                    <span>Abonnementer</span>
+                </a>
+                <a href="/api/drilldown/arpu" class="nav-link">
+                    <span class="nav-link-icon">💵</span>
+                    <span>ARPU</span>
+                </a>
+                <a href="/api/drilldown/new-mrr" class="nav-link">
+                    <span class="nav-link-icon">✨</span>
+                    <span>Ny MRR</span>
+                </a>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">SYSTEM</div>
+                <a href="/api/documents" class="nav-link">
+                    <span class="nav-link-icon">📄</span>
+                    <span>Importerte Filer</span>
+                </a>
+                <a href="/api/guide" class="nav-link">
+                    <span class="nav-link-icon">📖</span>
+                    <span>Brukerveiledning</span>
+                </a>
+                <a href="/api/debug" class="nav-link" style="opacity: 0.6;">
+                    <span class="nav-link-icon">🔍</span>
+                    <span>Database Info</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <div class="container">
+        <header>
+            <div>
+                <h1>📈 MRR Forecast</h1>
+                <div class="subtitle">Prognose for MRR-utvikling basert på non-renewing abonnementer</div>
+            </div>
+        </header>
+
+        <div class="card">
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-label">Nåværende MRR</div>
+                    <div class="stat-value">{{ current_mrr }}</div>
+                </div>
+                <div class="stat warn">
+                    <div class="stat-label">Non-Renewing MRR</div>
+                    <div class="stat-value">{{ non_renewing_mrr }}</div>
+                </div>
+                <div class="stat {{ 'bad' if forecasted_impact < 0 else 'good' }}">
+                    <div class="stat-label">Forventet MRR om {{ forecast_months }} mnd</div>
+                    <div class="stat-value">{{ forecasted_mrr }}</div>
+                </div>
+                <div class="stat bad">
+                    <div class="stat-label">Estimert tap</div>
+                    <div class="stat-value">{{ impact }}</div>
+                </div>
+            </div>
+
+            {% if non_renewing_count > 0 %}
+            <div class="warning-box">
+                <strong>⚠️ Advarsel:</strong> Du har {{ non_renewing_count }} non-renewing abonnementer som representerer {{ non_renewing_mrr }} i månedlig inntekt.
+                {% if subs_without_dates_count > 0 %}
+                <br><br>
+                <strong>Merk:</strong> {{ subs_without_dates_count }} av disse abonnementene mangler utløpsdato i Zoho, så vi kan ikke lage en tidslinje-prognose for dem.
+                De vises i tabellen "Non-renewing uten utløpsdato" nedenfor.
+                {% endif %}
+            </div>
+            {% else %}
+            <div class="info-box">
+                <strong>✅ Godt nytt:</strong> Ingen non-renewing abonnementer funnet. All MRR er fra løpende abonnementer.
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <h2>MRR Prognose ({{ forecast_months }} måneder fremover)</h2>
+            <div class="chart-container">
+                <canvas id="forecastChart"></canvas>
+            </div>
+        </div>
+
+        {% if upcoming_cancellations|length > 0 %}
+        <div class="card">
+            <h2>Kommende avtaler som avsluttes ({{ upcoming_cancellations|length }} stk)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Kunde</th>
+                        <th>Produkt</th>
+                        <th>Fartøy</th>
+                        <th class="number">MRR</th>
+                        <th>Avsluttes</th>
+                        <th>Dager igjen</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sub in upcoming_cancellations %}
+                    <tr>
+                        <td>{{ sub.customer_name }}</td>
+                        <td>{{ sub.product_name }}</td>
+                        <td>{{ sub.vessel_name }}</td>
+                        <td class="number">{{ sub.mrr }}</td>
+                        <td>{{ sub.expires_at }}</td>
+                        <td class="number">{{ sub.days_left }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        {% if no_expiry_list|length > 0 %}
+        <div class="card">
+            <h2>Non-renewing uten utløpsdato ({{ no_expiry_list|length }} stk)</h2>
+            <div class="warning-box">
+                <strong>⚠️ Advarsel:</strong> Disse abonnementene er satt til non-renewing men har ikke en utløpsdato i Zoho.
+                De inkluderes i non-renewing MRR, men kan ikke vises i prognosen over tid.
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Kunde</th>
+                        <th>Produkt</th>
+                        <th>Fartøy</th>
+                        <th class="number">MRR</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sub in no_expiry_list %}
+                    <tr>
+                        <td>{{ sub.customer_name }}</td>
+                        <td>{{ sub.product_name }}</td>
+                        <td>{{ sub.vessel_name }}</td>
+                        <td class="number">{{ sub.mrr }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        const forecastData = {{ forecast_data|safe }};
+
+        const ctx = document.getElementById('forecastChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: forecastData.labels,
+                datasets: [
+                    {
+                        label: 'Forventet MRR',
+                        data: forecastData.mrr,
+                        borderColor: '#ff6b6b',
+                        backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Nåværende MRR (baseline)',
+                        data: forecastData.baseline,
+                        borderColor: '#9fb1ff',
+                        backgroundColor: 'rgba(159, 177, 255, 0.05)',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        fill: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: '#e8ecff',
+                            font: {
+                                size: 12
+                            }
+                        }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(18, 25, 51, 0.95)',
+                        titleColor: '#e8ecff',
+                        bodyColor: '#9fb1ff',
+                        borderColor: 'rgba(255, 255, 255, 0.1)',
+                        borderWidth: 1,
+                        padding: 12,
+                        displayColors: true,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                label += context.parsed.y.toLocaleString('no-NO') + ' kr';
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.05)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#9fb1ff',
+                            font: {
+                                size: 11
+                            }
+                        }
+                    },
+                    y: {
+                        beginAtZero: false,
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.05)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#9fb1ff',
+                            font: {
+                                size: 11
+                            },
+                            callback: function(value) {
+                                return (value / 1000).toFixed(0) + 'k kr';
+                            }
+                        }
+                    }
+                },
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false
+                }
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Info - SaaS Analytics</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 240px;
+            height: 100vh;
+            background: rgba(18, 25, 51, 0.95);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .sidebar-logo {
+            padding: 24px 20px;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--ink);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .sidebar-nav {
+            padding: 12px 0;
+        }
+
+        .nav-section {
+            padding: 20px 0 8px 0;
+        }
+
+        .nav-section-title {
+            padding: 0 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 10px 20px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--ink);
+        }
+
+        .nav-link.active {
+            background: rgba(61, 220, 151, 0.15);
+            color: var(--good);
+            border-left-color: var(--good);
+        }
+
+        .nav-link-icon {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        .nav-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.06);
+            margin: 12px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            margin-left: 240px;
+            padding: 20px;
+        }
+
+        header {
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            color: var(--ink);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th, td {
+            padding: 10px 8px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        th {
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+            background: var(--panel);
+        }
+
+        td {
+            color: var(--ink);
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-excel {
+            background: var(--good);
+            color: #0b1020;
+        }
+
+        .badge-calculated {
+            background: var(--warn);
+            color: #0b1020;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .stat {
+            padding: 16px;
+            background: rgba(15, 21, 48, 0.6);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .stat-label {
+            color: var(--muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            color: var(--ink);
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        a.button {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: #0f1530;
+            color: var(--ink);
+            padding: 12px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+
+        a.button:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(15, 21, 48, 0.9);
+            transform: translateY(-1px);
+        }
+
+        .info-box {
+            background: rgba(159, 177, 255, 0.1);
+            border-left: 3px solid var(--muted);
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .number {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-logo">SaaS Analytics</div>
+        <nav class="sidebar-nav">
+            <a href="/api/dashboard" class="nav-link">
+                <span class="nav-link-icon">📊</span>
+                <span>Dashboard</span>
+            </a>
+            <a href="/api/trends" class="nav-link">
+                <span class="nav-link-icon">📈</span>
+                <span>Månedlige Trender</span>
+            </a>
+            <a href="/api/forecast" class="nav-link">
+                <span class="nav-link-icon">🔮</span>
+                <span>MRR Forecast</span>
+            </a>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">ANALYSE</div>
+                <a href="/api/drilldown/mrr" class="nav-link">
+                    <span class="nav-link-icon">💰</span>
+                    <span>MRR Grunnlag</span>
+                </a>
+                <a href="/api/drilldown/customers" class="nav-link">
+                    <span class="nav-link-icon">👥</span>
+                    <span>Kunder</span>
+                </a>
+                <a href="/api/drilldown/churn" class="nav-link">
+                    <span class="nav-link-icon">📉</span>
+                    <span>Churn</span>
+                </a>
+                <a href="/api/drilldown/subscriptions" class="nav-link">
+                    <span class="nav-link-icon">📋</span>
+                    <span>Abonnementer</span>
+                </a>
+                <a href="/api/drilldown/arpu" class="nav-link">
+                    <span class="nav-link-icon">💵</span>
+                    <span>ARPU</span>
+                </a>
+                <a href="/api/drilldown/new-mrr" class="nav-link">
+                    <span class="nav-link-icon">✨</span>
+                    <span>Ny MRR</span>
+                </a>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">SYSTEM</div>
+                <a href="/api/documents" class="nav-link">
+                    <span class="nav-link-icon">📄</span>
+                    <span>Importerte Filer</span>
+                </a>
+                <a href="/api/guide" class="nav-link">
+                    <span class="nav-link-icon">📖</span>
+                    <span>Brukerveiledning</span>
+                </a>
+                <a href="/api/debug" class="nav-link active" style="opacity: 0.6;">
+                    <span class="nav-link-icon">🔍</span>
+                    <span>Database Info</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>🔍 Database Info</h1>
+            <p class="subtitle">Se hva som ligger i databasen og grunnlaget for tallene</p>
+        </header>
+
+        <div class="card">
+            <h2>📊 Database Statistikk</h2>
+            <div class="stat-grid">
+                <div class="stat">
+                    <div class="stat-label">Totalt Snapshots</div>
+                    <div class="stat-value">{{ stats.total_snapshots }}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Excel-importerte</div>
+                    <div class="stat-value" style="color: var(--good);">{{ stats.excel_snapshots }}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Kalkulerte</div>
+                    <div class="stat-value" style="color: var(--warn);">{{ stats.calculated_snapshots }}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Subscriptions i DB</div>
+                    <div class="stat-value">{{ stats.total_subscriptions }}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Aktive Subscriptions</div>
+                    <div class="stat-value">{{ stats.active_subscriptions }}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Sist synkronisert</div>
+                    <div class="stat-value" style="font-size: 14px;">{{ stats.last_sync or 'Aldri' }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📅 Månedlige Snapshots</h2>
+            <div class="info-box">
+                <strong>Forklaring:</strong><br>
+                • <span class="badge badge-excel">EXCEL</span> = Importert fra Zoho Excel-rapport (100% nøyaktig)<br>
+                • <span class="badge badge-calculated">KALKULERT</span> = Beregnet fra subscription-data (estimert)
+            </div>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Måned</th>
+                            <th>Kilde</th>
+                            <th class="number">MRR</th>
+                            <th class="number">ARR</th>
+                            <th class="number">Kunder</th>
+                            <th class="number">Subscriptions</th>
+                            <th class="number">Ny MRR</th>
+                            <th class="number">Churned MRR</th>
+                            <th>Oppdatert</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for snapshot in snapshots %}
+                        <tr>
+                            <td><strong>{{ snapshot.month_name }}</strong></td>
+                            <td>
+                                {% if snapshot.source == 'excel_import' %}
+                                <span class="badge badge-excel">EXCEL</span>
+                                {% else %}
+                                <span class="badge badge-calculated">KALKULERT</span>
+                                {% endif %}
+                            </td>
+                            <td class="number">{{ "{:,.0f}".format(snapshot.mrr) }} kr</td>
+                            <td class="number">{{ "{:,.0f}".format(snapshot.arr or 0) }} kr</td>
+                            <td class="number">{{ snapshot.total_customers or 0 }}</td>
+                            <td class="number">{{ snapshot.active_subscriptions or 0 }}</td>
+                            <td class="number">{{ "{:,.0f}".format(snapshot.new_mrr or 0) }} kr</td>
+                            <td class="number">{{ "{:,.0f}".format(snapshot.churned_mrr or 0) }} kr</td>
+                            <td style="font-size: 12px; color: var(--muted);">{{ snapshot.updated_at.strftime('%d.%m.%Y %H:%M') if snapshot.updated_at else '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>ℹ️ Hvordan dataene fungerer</h2>
+            <div style="line-height: 1.8; color: var(--muted);">
+                <p style="margin-bottom: 12px;">
+                    <strong style="color: var(--ink);">Kalkulerte snapshots:</strong><br>
+                    Beregnes automatisk fra subscription-dataene i databasen. Dette er estimater basert på når subscriptions startet og sluttet.
+                    Kan være unøyaktige for historiske måneder fordi subscription-status kan ha endret seg.
+                </p>
+                <p style="margin-bottom: 12px;">
+                    <strong style="color: var(--ink);">Excel-importerte snapshots:</strong><br>
+                    Importert direkte fra "MRR Details" Excel-rapporten fra Zoho. Dette er 100% nøyaktige tall fra Zoho sin rapportering.
+                    Anbefales for alle historiske måneder for nøyaktige data.
+                </p>
+                <p>
+                    <strong style="color: var(--ink);">Synkronisering:</strong><br>
+                    "Synkroniser fra Zoho" henter de nyeste subscription-dataene via API og oppdaterer gjeldende måneds snapshot.
+                    Dette påvirker kun kalkulerte snapshots, ikke Excel-importerte.
+                </p>
+            </div>
+        </div>
+
+        <div class="card" style="border: 1px solid var(--bad);">
+            <h2 style="color: var(--bad);">⚠️ Farlig sone</h2>
+            <p style="color: var(--muted); margin-bottom: 16px;">
+                Disse handlingene kan ikke angres. Vær forsiktig!
+            </p>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <button onclick="clearSnapshots()" style="background: var(--bad); border: none; color: white; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500;">
+                    🗑️ Slett alle snapshots
+                </button>
+                <button onclick="clearSubscriptions()" style="background: var(--bad); border: none; color: white; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500;">
+                    🗑️ Slett alle subscriptions
+                </button>
+                <button onclick="clearAll()" style="background: #8B0000; border: none; color: white; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500;">
+                    💣 Slett ALT (full reset)
+                </button>
+            </div>
+            <div id="clearStatus" style="display: none; margin-top: 12px; padding: 12px; border-radius: 10px; font-size: 14px;"></div>
+        </div>
+    </div>
+
+    <script>
+        async function clearSnapshots() {
+            if (!confirm('Er du sikker på at du vil slette ALLE snapshots?\n\nDette kan ikke angres!')) {
+                return;
+            }
+
+            const statusDiv = document.getElementById('clearStatus');
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = 'rgba(159, 177, 255, 0.1)';
+            statusDiv.style.color = 'var(--muted)';
+            statusDiv.innerHTML = '⏳ Sletter snapshots...';
+
+            try {
+                const response = await fetch('/api/clear-snapshots', { method: 'POST' });
+                const data = await response.json();
+
+                if (response.ok) {
+                    statusDiv.style.background = 'rgba(61, 220, 151, 0.1)';
+                    statusDiv.style.color = 'var(--good)';
+                    statusDiv.innerHTML = `✅ ${data.message}`;
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    throw new Error(data.detail || 'Sletting feilet');
+                }
+            } catch (error) {
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                statusDiv.innerHTML = `❌ Feil: ${error.message}`;
+            }
+        }
+
+        async function clearSubscriptions() {
+            if (!confirm('Er du sikker på at du vil slette ALLE subscriptions?\n\nDette kan ikke angres!')) {
+                return;
+            }
+
+            const statusDiv = document.getElementById('clearStatus');
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = 'rgba(159, 177, 255, 0.1)';
+            statusDiv.style.color = 'var(--muted)';
+            statusDiv.innerHTML = '⏳ Sletter subscriptions...';
+
+            try {
+                const response = await fetch('/api/clear-subscriptions', { method: 'POST' });
+                const data = await response.json();
+
+                if (response.ok) {
+                    statusDiv.style.background = 'rgba(61, 220, 151, 0.1)';
+                    statusDiv.style.color = 'var(--good)';
+                    statusDiv.innerHTML = `✅ ${data.message}`;
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    throw new Error(data.detail || 'Sletting feilet');
+                }
+            } catch (error) {
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                statusDiv.innerHTML = `❌ Feil: ${error.message}`;
+            }
+        }
+
+        async function clearAll() {
+            if (!confirm('⚠️ ADVARSEL: Dette sletter HELE databasen!\n\n- Alle snapshots\n- Alle subscriptions\n- All sync-historikk\n\nEr du HELT sikker?')) {
+                return;
+            }
+
+            if (!confirm('SISTE BEKREFTELSE:\n\nDette kan IKKE angres!\n\nTrykk OK for å slette alt.')) {
+                return;
+            }
+
+            const statusDiv = document.getElementById('clearStatus');
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = 'rgba(159, 177, 255, 0.1)';
+            statusDiv.style.color = 'var(--muted)';
+            statusDiv.innerHTML = '⏳ Sletter hele databasen...';
+
+            try {
+                const response = await fetch('/api/clear-all', { method: 'POST' });
+                const data = await response.json();
+
+                if (response.ok) {
+                    statusDiv.style.background = 'rgba(61, 220, 151, 0.1)';
+                    statusDiv.style.color = 'var(--good)';
+                    statusDiv.innerHTML = `✅ ${data.message}`;
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    throw new Error(data.detail || 'Sletting feilet');
+                }
+            } catch (error) {
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                statusDiv.innerHTML = `❌ Feil: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

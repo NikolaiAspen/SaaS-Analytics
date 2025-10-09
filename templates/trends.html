@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Månedlige Trender - SaaS Analytics</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 240px;
+            height: 100vh;
+            background: rgba(18, 25, 51, 0.95);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .sidebar-logo {
+            padding: 24px 20px;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--ink);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .sidebar-nav {
+            padding: 12px 0;
+        }
+
+        .nav-section {
+            padding: 20px 0 8px 0;
+        }
+
+        .nav-section-title {
+            padding: 0 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 10px 20px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--ink);
+        }
+
+        .nav-link.active {
+            background: rgba(61, 220, 151, 0.15);
+            color: var(--good);
+            border-left-color: var(--good);
+        }
+
+        .nav-link-icon {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        .nav-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.06);
+            margin: 12px 20px;
+        }
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            margin-left: 240px;
+            padding: 20px;
+        }
+
+        header {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            margin: 0;
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            color: var(--ink);
+        }
+
+        table {
+            width: 100%;
+            min-width: 1400px;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th, td {
+            padding: 10px 8px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            white-space: nowrap;
+        }
+
+        th {
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+            background: var(--panel);
+            z-index: 10;
+        }
+
+        td {
+            color: var(--ink);
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .positive {
+            color: var(--good);
+        }
+
+        .negative {
+            color: var(--bad);
+        }
+
+        .neutral {
+            color: var(--muted);
+        }
+
+        .number {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .month-link {
+            color: var(--ink);
+            text-decoration: none;
+            cursor: pointer;
+            border-bottom: 1px dashed rgba(255, 255, 255, 0.3);
+            transition: all 0.2s;
+        }
+
+        .month-link:hover {
+            color: var(--good);
+            border-bottom-color: var(--good);
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        button, a.button {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: #0f1530;
+            color: var(--ink);
+            padding: 12px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+
+        button:hover, a.button:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(15, 21, 48, 0.9);
+            transform: translateY(-1px);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--muted);
+        }
+
+        @media (max-width: 768px) {
+            table {
+                font-size: 12px;
+            }
+
+            th, td {
+                padding: 8px 6px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-logo">SaaS Analytics</div>
+        <nav class="sidebar-nav">
+            <a href="/api/dashboard" class="nav-link">
+                <span class="nav-link-icon">📊</span>
+                <span>Dashboard</span>
+            </a>
+            <a href="/api/trends" class="nav-link active">
+                <span class="nav-link-icon">📈</span>
+                <span>Månedlige Trender</span>
+            </a>
+            <a href="/api/forecast" class="nav-link">
+                <span class="nav-link-icon">🔮</span>
+                <span>MRR Forecast</span>
+            </a>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">ANALYSE</div>
+                <a href="/api/drilldown/mrr" class="nav-link">
+                    <span class="nav-link-icon">💰</span>
+                    <span>MRR Grunnlag</span>
+                </a>
+                <a href="/api/drilldown/customers" class="nav-link">
+                    <span class="nav-link-icon">👥</span>
+                    <span>Kunder</span>
+                </a>
+                <a href="/api/drilldown/churn" class="nav-link">
+                    <span class="nav-link-icon">📉</span>
+                    <span>Churn</span>
+                </a>
+                <a href="/api/drilldown/subscriptions" class="nav-link">
+                    <span class="nav-link-icon">📋</span>
+                    <span>Abonnementer</span>
+                </a>
+                <a href="/api/drilldown/arpu" class="nav-link">
+                    <span class="nav-link-icon">💵</span>
+                    <span>ARPU</span>
+                </a>
+                <a href="/api/drilldown/new-mrr" class="nav-link">
+                    <span class="nav-link-icon">✨</span>
+                    <span>Ny MRR</span>
+                </a>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">SYSTEM</div>
+                <a href="/api/documents" class="nav-link">
+                    <span class="nav-link-icon">📄</span>
+                    <span>Importerte Filer</span>
+                </a>
+                <a href="/api/guide" class="nav-link">
+                    <span class="nav-link-icon">📖</span>
+                    <span>Brukerveiledning</span>
+                </a>
+                <a href="/api/debug" class="nav-link" style="opacity: 0.6;">
+                    <span class="nav-link-icon">🔍</span>
+                    <span>Database Info</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>Månedlige Trender</h1>
+        </header>
+
+        <div class="card">
+            <h2>💬 Spør Niko om trendene</h2>
+            <p style="color: var(--muted); margin-bottom: 12px; font-size: 14px;">
+                Still spørsmål om MRR-endringer, churn, kundevekst, eller andre trender basert på de importerte Excel-filene.
+            </p>
+            <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+                <input type="text" id="trendsQuestion" placeholder="F.eks: Hvorfor gikk MRR ned i august?"
+                       style="flex: 1; padding: 12px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); background: #0f1530; color: var(--ink); font-size: 14px;"
+                       onkeypress="if(event.key === 'Enter') askTrendsNiko()"/>
+                <button onclick="askTrendsNiko()" style="padding: 12px 24px; width: auto;">Spør Niko</button>
+            </div>
+            <div id="trendsAnswer" style="display: none; background: rgba(15, 21, 48, 0.6); padding: 16px; border-radius: 10px; border-left: 3px solid var(--good); white-space: pre-line;"></div>
+        </div>
+
+        <div class="card">
+            <h2>📈 MRR Månedlig Trend</h2>
+            <div id="chartContainer" style="height: 400px; position: relative;">
+                <canvas id="mrrChart"></canvas>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>MRR og Kundevekst (alle måneder)</h2>
+            <p style="color: var(--muted); margin-bottom: 16px; font-size: 14px;">
+                📊 <strong>Forklaring av kolonner:</strong><br>
+                • <strong>MRR:</strong> Total månedlig gjentakende inntekt ved slutten av måneden<br>
+                • <strong>Net MRR:</strong> Ny MRR - Churned MRR (nye kunder minus tapte kunder)<br>
+                • <strong>Annen MRR:</strong> Expansion, Contraction, Reactivations (MRR Endring - Net MRR)<br>
+                • <strong>Churned MRR:</strong> Kun abonnementer som var aktive før måneden og ble kansellert i måneden
+            </p>
+            <div id="dataSourceInfo" style="background: rgba(61, 220, 151, 0.1); padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; color: var(--good); font-size: 13px; border-left: 3px solid var(--good);">
+                ✓ <strong>Dataene vises fra lagrede månedlige snapshots</strong> - disse reflekterer faktiske tall fra hver måned og er nøyaktige.
+            </div>
+            <div id="trendsTable" class="loading" style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+                Laster data...
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        let mrrChart = null;
+
+        async function loadTrends() {
+            try {
+                const response = await fetch('/api/monthly-trends?months=999');
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    displayTrends(data.trends);
+                    createMRRChart(data.trends);
+                } else {
+                    document.getElementById('trendsTable').innerHTML = '<p>Kunne ikke laste trender</p>';
+                }
+            } catch (error) {
+                document.getElementById('trendsTable').innerHTML = '<p>Feil: ' + error.message + '</p>';
+            }
+        }
+
+        function createMRRChart(trends) {
+            const ctx = document.getElementById('mrrChart').getContext('2d');
+
+            // Trends are already sorted newest first, keep that order
+            const labels = trends.map(t => t.month_name);
+            const mrrData = trends.map(t => t.mrr);
+
+            // Destroy existing chart if it exists
+            if (mrrChart) {
+                mrrChart.destroy();
+            }
+
+            mrrChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'MRR (kr)',
+                        data: mrrData,
+                        borderColor: '#3ddc97',
+                        backgroundColor: 'rgba(61, 220, 151, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 5,
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: '#3ddc97',
+                        pointBorderColor: '#0b1020',
+                        pointBorderWidth: 2,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(18, 25, 51, 0.95)',
+                            titleColor: '#9fb1ff',
+                            bodyColor: '#e8ecff',
+                            borderColor: 'rgba(255, 255, 255, 0.12)',
+                            borderWidth: 1,
+                            padding: 12,
+                            displayColors: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return 'MRR: ' + context.parsed.y.toLocaleString('no-NO', {
+                                        minimumFractionDigits: 0,
+                                        maximumFractionDigits: 0
+                                    }) + ' kr';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            ticks: {
+                                color: '#9fb1ff',
+                                callback: function(value) {
+                                    return value.toLocaleString('no-NO') + ' kr';
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.06)',
+                                drawBorder: false
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#9fb1ff',
+                                maxRotation: 45,
+                                minRotation: 45
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.06)',
+                                drawBorder: false
+                            }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    }
+                }
+            });
+        }
+
+        function displayTrends(trends) {
+            const table = document.createElement('table');
+
+            const thead = `
+                <thead>
+                    <tr>
+                        <th>Måned</th>
+                        <th class="number">MRR</th>
+                        <th class="number">MRR Endring</th>
+                        <th class="number">MRR %</th>
+                        <th class="number">Kunder</th>
+                        <th class="number">Kunde Endring</th>
+                        <th class="number">Abonnementer</th>
+                        <th class="number">Ny MRR</th>
+                        <th class="number">Churned MRR</th>
+                        <th class="number">Net MRR</th>
+                        <th class="number" title="Expansion, Contraction, Reactivations">Annen MRR</th>
+                        <th class="number">Churned Kunder</th>
+                    </tr>
+                </thead>
+            `;
+
+            let tbody = '<tbody>';
+            trends.forEach(trend => {
+                const mrrChange = trend.mrr_change || 0;
+                const mrrChangePct = trend.mrr_change_pct || 0;
+                const customerChange = trend.customer_change || 0;
+                const otherMrr = trend.other_mrr || 0;
+
+                const mrrChangeClass = mrrChange > 0 ? 'positive' : mrrChange < 0 ? 'negative' : 'neutral';
+                const customerChangeClass = customerChange > 0 ? 'positive' : customerChange < 0 ? 'negative' : 'neutral';
+                const otherMrrClass = otherMrr > 0 ? 'positive' : otherMrr < 0 ? 'negative' : 'neutral';
+
+                // Add visual indicator for data source
+                const dataSourceBadge = trend.is_from_excel
+                    ? '<span style="background: var(--good); color: #0b1020; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-left: 6px; font-weight: 600;">✓ EXCEL</span>'
+                    : '<span style="background: var(--warn); color: #0b1020; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-left: 6px; font-weight: 600;">~ ESTIMERT</span>';
+
+                tbody += `
+                    <tr>
+                        <td><a href="/api/mrr-breakdown-page?month=${trend.month}" class="month-link">${trend.month_name}</a>${dataSourceBadge}</td>
+                        <td class="number">${formatNumber(trend.mrr, false, 2)} kr</td>
+                        <td class="number ${mrrChangeClass}">${formatNumber(mrrChange, true, 2)} kr</td>
+                        <td class="number ${mrrChangeClass}">${formatNumber(mrrChangePct, true, 2)}%</td>
+                        <td class="number">${trend.customers}</td>
+                        <td class="number ${customerChangeClass}">${formatNumber(customerChange, true)}</td>
+                        <td class="number">${trend.subscriptions}</td>
+                        <td class="number positive">${formatNumber(trend.new_mrr, false, 2)} kr</td>
+                        <td class="number negative">${formatNumber(trend.churned_mrr, false, 2)} kr</td>
+                        <td class="number ${trend.net_mrr >= 0 ? 'positive' : 'negative'}">${formatNumber(trend.net_mrr, true, 2)} kr</td>
+                        <td class="number ${otherMrrClass}">${formatNumber(otherMrr, true, 2)} kr</td>
+                        <td class="number">${trend.churned_customers || 0}</td>
+                    </tr>
+                `;
+            });
+            tbody += '</tbody>';
+
+            table.innerHTML = thead + tbody;
+            document.getElementById('trendsTable').innerHTML = '';
+            document.getElementById('trendsTable').appendChild(table);
+        }
+
+        function formatNumber(num, showSign = false, decimals = 0) {
+            const formatted = Math.abs(num).toLocaleString('no-NO', {
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals
+            });
+
+            if (showSign && num > 0) {
+                return '+' + formatted;
+            } else if (showSign && num < 0) {
+                return '-' + formatted;
+            }
+            return formatted;
+        }
+
+        // Load trends on page load
+        loadTrends();
+
+        async function askTrendsNiko() {
+            const question = document.getElementById('trendsQuestion').value.trim();
+            if (!question) return;
+
+            const answerDiv = document.getElementById('trendsAnswer');
+            answerDiv.style.display = 'block';
+            answerDiv.innerHTML = '<div style="color: var(--muted);">🤔 Analyserer trenddata...</div>';
+
+            try {
+                const response = await fetch('/api/ask-trends', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ question: question })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    answerDiv.innerHTML = `
+                        <div style="padding: 16px; background: rgba(159, 177, 255, 0.05); border-radius: 8px; margin-bottom: 12px;">
+                            <strong style="color: var(--muted); font-size: 13px;">SPØRSMÅL</strong>
+                            <p style="color: var(--ink); margin-top: 6px; font-size: 15px;">${question}</p>
+                        </div>
+                        <div style="padding: 16px; background: rgba(61, 220, 151, 0.05); border-radius: 8px;">
+                            <strong style="color: var(--good); font-size: 13px;">NIKO-ANALYSE</strong>
+                            <div style="color: var(--ink); margin-top: 12px; line-height: 1.7; white-space: pre-line;">${data.answer}</div>
+                        </div>
+                    `;
+                } else {
+                    answerDiv.innerHTML = `<div style="padding: 12px; background: rgba(255, 107, 107, 0.1); border-radius: 8px; color: var(--bad);"><strong>Feil:</strong> ${data.detail || 'Kunne ikke få svar'}</div>`;
+                }
+            } catch (error) {
+                answerDiv.innerHTML = `<strong style="color: var(--bad);">Feil:</strong> ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

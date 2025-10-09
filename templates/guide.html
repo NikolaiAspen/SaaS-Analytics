@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brukerveiledning - SaaS Analytics</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 240px;
+            height: 100vh;
+            background: rgba(18, 25, 51, 0.95);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .sidebar-logo {
+            padding: 24px 20px;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--ink);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .sidebar-nav {
+            padding: 12px 0;
+        }
+
+        .nav-section {
+            padding: 20px 0 8px 0;
+        }
+
+        .nav-section-title {
+            padding: 0 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 10px 20px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--ink);
+        }
+
+        .nav-link.active {
+            background: rgba(61, 220, 151, 0.15);
+            color: var(--good);
+            border-left-color: var(--good);
+        }
+
+        .nav-link-icon {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        .nav-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.06);
+            margin: 12px 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            margin-left: 240px;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 40px 20px;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 36px;
+            color: var(--ink);
+            margin-bottom: 12px;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 16px;
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 30px;
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: var(--ink);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .card h3 {
+            font-size: 18px;
+            margin: 24px 0 12px 0;
+            color: var(--ink);
+        }
+
+        .step {
+            background: rgba(15, 21, 48, 0.6);
+            border-left: 3px solid var(--good);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+        }
+
+        .step-number {
+            display: inline-block;
+            background: var(--good);
+            color: #0b1020;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 32px;
+            font-weight: 700;
+            margin-right: 12px;
+            font-size: 16px;
+        }
+
+        .step-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--ink);
+            margin-bottom: 12px;
+        }
+
+        .step-content {
+            color: var(--muted);
+            line-height: 1.7;
+            font-size: 15px;
+        }
+
+        .step-content ul {
+            margin: 12px 0 0 20px;
+        }
+
+        .step-content li {
+            margin: 8px 0;
+        }
+
+        .tip-box {
+            background: rgba(61, 220, 151, 0.1);
+            border-left: 3px solid var(--good);
+            padding: 16px 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        .tip-box strong {
+            color: var(--good);
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .tip-box p {
+            color: var(--muted);
+            margin-top: 8px;
+            line-height: 1.6;
+        }
+
+        .warning-box {
+            background: rgba(255, 209, 102, 0.1);
+            border-left: 3px solid var(--warn);
+            padding: 16px 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        .warning-box strong {
+            color: var(--warn);
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .warning-box p {
+            color: var(--muted);
+            margin-top: 8px;
+            line-height: 1.6;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 30px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        a.button {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: #0f1530;
+            color: var(--ink);
+            padding: 14px 24px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+
+        a.button:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(15, 21, 48, 0.9);
+            transform: translateY(-1px);
+        }
+
+        .button-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: transparent;
+        }
+
+        .button-primary:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #65398d 100%);
+            border-color: transparent;
+        }
+
+        .icon {
+            font-size: 28px;
+        }
+
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .comparison-item {
+            background: rgba(15, 21, 48, 0.6);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .comparison-item h4 {
+            color: var(--ink);
+            margin-bottom: 12px;
+            font-size: 16px;
+        }
+
+        .comparison-item ul {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        .comparison-item ul li {
+            margin: 8px 0;
+        }
+
+        @media (max-width: 768px) {
+            .comparison {
+                grid-template-columns: 1fr;
+            }
+
+            header {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 28px;
+            }
+
+            .card {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-logo">SaaS Analytics</div>
+        <nav class="sidebar-nav">
+            <a href="/api/dashboard" class="nav-link">
+                <span class="nav-link-icon">📊</span>
+                <span>Dashboard</span>
+            </a>
+            <a href="/api/trends" class="nav-link">
+                <span class="nav-link-icon">📈</span>
+                <span>Månedlige Trender</span>
+            </a>
+            <a href="/api/forecast" class="nav-link">
+                <span class="nav-link-icon">🔮</span>
+                <span>MRR Forecast</span>
+            </a>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">ANALYSE</div>
+                <a href="/api/drilldown/mrr" class="nav-link">
+                    <span class="nav-link-icon">💰</span>
+                    <span>MRR Grunnlag</span>
+                </a>
+                <a href="/api/drilldown/customers" class="nav-link">
+                    <span class="nav-link-icon">👥</span>
+                    <span>Kunder</span>
+                </a>
+                <a href="/api/drilldown/churn" class="nav-link">
+                    <span class="nav-link-icon">📉</span>
+                    <span>Churn</span>
+                </a>
+                <a href="/api/drilldown/subscriptions" class="nav-link">
+                    <span class="nav-link-icon">📋</span>
+                    <span>Abonnementer</span>
+                </a>
+                <a href="/api/drilldown/arpu" class="nav-link">
+                    <span class="nav-link-icon">💵</span>
+                    <span>ARPU</span>
+                </a>
+                <a href="/api/drilldown/new-mrr" class="nav-link">
+                    <span class="nav-link-icon">✨</span>
+                    <span>Ny MRR</span>
+                </a>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">SYSTEM</div>
+                <a href="/api/documents" class="nav-link">
+                    <span class="nav-link-icon">📄</span>
+                    <span>Importerte Filer</span>
+                </a>
+                <a href="/api/guide" class="nav-link active">
+                    <span class="nav-link-icon">📖</span>
+                    <span>Brukerveiledning</span>
+                </a>
+                <a href="/api/debug" class="nav-link" style="opacity: 0.6;">
+                    <span class="nav-link-icon">🔍</span>
+                    <span>Database Info</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>📖 Brukerveiledning</h1>
+            <p class="subtitle">Slik bruker du SaaS Analytics Dashboard</p>
+        </header>
+
+        <div class="card">
+            <h2><span class="icon">🔄</span> Synkroniser Subscriptions</h2>
+            <p style="color: var(--muted); margin-bottom: 20px;">
+                Hent de nyeste subscription-dataene fra Zoho Billing via API
+            </p>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">1</span>
+                    Klikk på "🔄 Synkroniser subscriptions fra Zoho"
+                </div>
+                <div class="step-content">
+                    Henter alle aktive subscriptions (live + non_renewing) fra Zoho Billing API
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">2</span>
+                    Vent til synkroniseringen er ferdig
+                </div>
+                <div class="step-content">
+                    Siden oppdateres automatisk når dataene er hentet. Dette tar vanligvis 5-15 sekunder.
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">3</span>
+                    Se oppdaterte tall på dashboardet
+                </div>
+                <div class="step-content">
+                    MRR, ARR, kunder og andre metrics beregnes automatisk fra subscription-dataene
+                </div>
+            </div>
+
+            <div class="warning-box">
+                <strong>⚠️ Viktig å vite</strong>
+                <p>
+                    Synkronisering gir <strong>estimater</strong> basert på subscription-data. For 100% nøyaktige tall fra Zoho, importer Excel-rapporter (se under).
+                </p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2><span class="icon">📥</span> Importer Historiske Data</h2>
+            <p style="color: var(--muted); margin-bottom: 20px;">
+                Last opp "MRR Details" Excel-rapporter fra Zoho for nøyaktige tall
+            </p>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">1</span>
+                    Gå til Zoho Billing → Reports → MRR Details
+                </div>
+                <div class="step-content">
+                    Logg inn på Zoho Billing og naviger til rapporter
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">2</span>
+                    Velg måned(er) og last ned Excel
+                </div>
+                <div class="step-content">
+                    <ul>
+                        <li>Velg den måneden du vil importere (f.eks. Oktober 2024)</li>
+                        <li>Klikk "Export" eller "Download as Excel"</li>
+                        <li>Gjenta for flere måneder hvis ønskelig</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">3</span>
+                    Last opp i SaaS Analytics
+                </div>
+                <div class="step-content">
+                    <ul>
+                        <li>Gå til "📄 Importerte dokumenter" i menyen</li>
+                        <li>Klikk "Velg filer" og velg Excel-fil(er)</li>
+                        <li>Du kan velge flere filer samtidig (Ctrl+klikk)</li>
+                        <li>Klikk "📤 Last opp og importer"</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">4</span>
+                    Måneden identifiseres automatisk
+                </div>
+                <div class="step-content">
+                    Systemet leser dato-kolonnen fra Excel-filen og lagrer data for riktig måned automatisk. Ingen manuell innstilling nødvendig!
+                </div>
+            </div>
+
+            <div class="tip-box">
+                <strong>💡 Tips</strong>
+                <p>
+                    Excel-import gir <strong>100% nøyaktige tall</strong> fra Zoho sin rapportering. Dette er anbefalt for historiske måneder og for å se nøyaktige trender over tid.
+                </p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2><span class="icon">📊</span> Analyser og Trender</h2>
+            <p style="color: var(--muted); margin-bottom: 20px;">
+                Utforsk dataene dine og få innsikt
+            </p>
+
+            <h3>Tilgjengelige visninger:</h3>
+
+            <div class="step">
+                <div class="step-title">
+                    Se månedlige trender
+                </div>
+                <div class="step-content">
+                    Vis MRR-utvikling, kundevekst, churn og andre metrics over tid (siste 12 måneder)
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    Se MRR grunnlag
+                </div>
+                <div class="step-content">
+                    Detaljert breakdown av MRR per kunde, sortert etter MRR-verdi
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    📄 Importerte dokumenter
+                </div>
+                <div class="step-content">
+                    Se oversikt over alle måneder du har importert fra Excel. Viser hvilke måneder som mangler.
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    🔍 Database Info
+                </div>
+                <div class="step-content">
+                    Se hva som ligger i databasen: Excel-importerte vs kalkulerte snapshots, antall subscriptions, etc.
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2><span class="icon">🤖</span> Spør AI</h2>
+            <p style="color: var(--muted); margin-bottom: 20px;">
+                Få innsikt og analyser ved å spørre AI om tallene dine
+            </p>
+
+            <div class="step">
+                <div class="step-title">
+                    Eksempler på spørsmål:
+                </div>
+                <div class="step-content">
+                    <ul>
+                        <li>"Hvorfor gikk MRR ned i forrige måned?"</li>
+                        <li>"Hvilke måneder hadde høyest churn?"</li>
+                        <li>"Hva er trenden for kundevekst?"</li>
+                        <li>"Hvordan utvikler ARPU seg over tid?"</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="tip-box">
+                <strong>💡 Tips</strong>
+                <p>
+                    AI analyserer både nåværende status og historiske trender. For beste svar, importer flere måneder med Excel-data først.
+                </p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2><span class="icon">⚖️</span> Excel vs Synkronisering</h2>
+            <p style="color: var(--muted); margin-bottom: 20px;">
+                Forstå forskjellen mellom datakilder
+            </p>
+
+            <div class="comparison">
+                <div class="comparison-item" style="border-left: 3px solid var(--good);">
+                    <h4>✅ Excel-import (Anbefalt)</h4>
+                    <ul>
+                        <li>100% nøyaktige tall fra Zoho</li>
+                        <li>Basert på Zoho sin offisielle rapportering</li>
+                        <li>Perfekt for historiske måneder</li>
+                        <li>Vises med "✓ EXCEL" badge</li>
+                        <li>Brukes i "Importerte dokumenter"</li>
+                    </ul>
+                </div>
+
+                <div class="comparison-item" style="border-left: 3px solid var(--warn);">
+                    <h4>⚠️ Synkronisering (Estimat)</h4>
+                    <ul>
+                        <li>Estimater fra subscription-data</li>
+                        <li>Beregnet fra aktive subscriptions</li>
+                        <li>Greit for nåværende måned</li>
+                        <li>Vises med "~ ESTIMERT" badge</li>
+                        <li>Kan være unøyaktig for historikk</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="tip-box" style="margin-top: 20px;">
+                <strong>💡 Anbefaling</strong>
+                <p>
+                    <strong>Bruk Excel-import for alle historiske måneder</strong> og synkronisering kun for å oppdatere gjeldende måned mellom rapporter.
+                </p>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>
