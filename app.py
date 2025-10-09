@@ -2152,6 +2152,60 @@ async def health():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 
+@app.get("/version")
+async def version():
+    """Version information with git commit hash"""
+    import subprocess
+    import os
+
+    git_commit = "unknown"
+    git_branch = "unknown"
+
+    try:
+        # Try to get git commit hash
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if result.returncode == 0:
+            git_commit = result.stdout.strip()
+
+        # Try to get git branch
+        result_branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if result_branch.returncode == 0:
+            git_branch = result_branch.stdout.strip()
+    except Exception as e:
+        git_commit = f"error: {str(e)}"
+
+    # Read first few lines of parse_date function to verify fix is in place
+    fix_status = "unknown"
+    try:
+        with open(__file__, 'r') as f:
+            content = f.read()
+            if 'return dt.replace(tzinfo=None)' in content:
+                fix_status = "✅ Timezone fix present"
+            else:
+                fix_status = "❌ Timezone fix MISSING"
+    except:
+        pass
+
+    return {
+        "app_version": "1.0.0",
+        "git_commit": git_commit,
+        "git_branch": git_branch,
+        "python_version": os.sys.version,
+        "timezone_fix": fix_status,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 
