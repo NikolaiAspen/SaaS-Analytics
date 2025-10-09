@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     port: int = 8000
     database_url: str = "sqlite+aiosqlite:///./data/app.db"
 
+    # Authentication Configuration (optional - if not set, auth is disabled)
+    auth_username: str = ""
+    auth_password: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

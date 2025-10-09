@@ -14,6 +14,7 @@ from config import settings
 from database import init_db, get_session
 from services import ZohoClient, MetricsCalculator, AnalysisService, ZohoReportImporter
 from models.subscription import Subscription, MetricsSnapshot, SyncStatus, MonthlyMRRSnapshot
+from auth import verify_credentials
 
 
 @asynccontextmanager
@@ -34,6 +35,60 @@ app = FastAPI(
 )
 
 templates = Jinja2Templates(directory="templates")
+
+
+# Authentication middleware for all /api/* routes
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Require Basic Auth for all /api/* routes if credentials are configured"""
+    # Only protect /api/* routes
+    if request.url.path.startswith("/api/"):
+        # Check if auth is configured
+        if settings.auth_username and settings.auth_password:
+            # Verify credentials
+            try:
+                from auth import verify_credentials
+                from fastapi.security import HTTPBasic, HTTPBasicCredentials
+                import base64
+
+                # Get Authorization header
+                auth_header = request.headers.get("Authorization")
+                if not auth_header or not auth_header.startswith("Basic "):
+                    from fastapi.responses import Response
+                    return Response(
+                        content="Authentication required",
+                        status_code=401,
+                        headers={"WWW-Authenticate": "Basic realm=\"SaaS Analytics\""}
+                    )
+
+                # Decode credentials
+                try:
+                    credentials_b64 = auth_header.split(" ")[1]
+                    credentials_str = base64.b64decode(credentials_b64).decode("utf-8")
+                    username, password = credentials_str.split(":", 1)
+
+                    # Verify
+                    import secrets
+                    username_correct = secrets.compare_digest(username, settings.auth_username)
+                    password_correct = secrets.compare_digest(password, settings.auth_password)
+
+                    if not (username_correct and password_correct):
+                        from fastapi.responses import Response
+                        return Response(
+                            content="Invalid credentials",
+                            status_code=401,
+                            headers={"WWW-Authenticate": "Basic realm=\"SaaS Analytics\""}
+                        )
+                except Exception:
+                    from fastapi.responses import Response
+                    return Response(
+                        content="Invalid authentication",
+                        status_code=401,
+                        headers={"WWW-Authenticate": "Basic realm=\"SaaS Analytics\""}
+                    )
+
+    response = await call_next(request)
+    return response
 
 
 def get_zoho_client() -> ZohoClient:
