@@ -40,6 +40,10 @@ OPENAI_MODEL=gpt-4.1-mini
 APP_ENV=dev
 PORT=8000
 DATABASE_URL=sqlite+aiosqlite:///./data/app.db
+
+# Authentication (Optional - leave empty to disable)
+AUTH_USERNAME=admin
+AUTH_PASSWORD=your_secure_password_here
 ```
 
 ## Development Commands
@@ -103,3 +107,54 @@ uvicorn app:app --reload
 
 **Force Full Sync**:
 - Add `?force_full=true` to sync endpoint: `POST /api/sync?force_full=true`
+
+## Recent Updates (2025-10)
+
+### UI Improvements
+- ✅ **Fixed Sidebar Navigation**: Added permanent left sidebar menu (240px) to all pages (dashboard, trends, forecast, drilldown pages, documents, guide, debug)
+- ✅ **MRR Trend Graph**: Added Chart.js line graph showing monthly MRR trends on `/api/trends` page
+- ✅ **Churn Display**: Churned MRR values now display in red with minus signs for better visibility
+- ✅ **"Spør Niko" Branding**: Replaced all "AI" references with "Niko" throughout the application
+
+### Authentication
+- ✅ **Basic Auth Implementation**: Added HTTP Basic Authentication to protect all `/api/*` routes
+  - Middleware in `app.py` checks credentials for all dashboard/API access
+  - Configured via `AUTH_USERNAME` and `AUTH_PASSWORD` environment variables
+  - **Optional**: Leave credentials empty to disable auth (not recommended for production)
+  - See `AUTH.md` for full setup guide
+
+### Deployment Ready
+- ✅ **Prepared for Railway/Render**:
+  - `requirements.txt` - All Python dependencies
+  - `Procfile` - Deployment command
+  - `.env.example` - Template for environment variables
+  - `DEPLOYMENT.md` - Complete deployment guide
+  - `.gitignore` - Excludes sensitive files (.env, database, etc.)
+- ✅ **GitHub Ready**: Code pushed to https://github.com/NikolaiAspen/SaaS-Analytics
+
+### Railway Deployment Notes
+**Issue**: Private GitHub repositories require additional access configuration
+**Solutions**:
+1. **Make repo public** (recommended for internal dashboards):
+   - Go to GitHub repo settings → Danger Zone → Change visibility → Make public
+   - Safe because `.env` with secrets is gitignored
+   - Auth protects actual app access
+2. **Grant Railway access to private repos**:
+   - GitHub Settings → Installations → Railway → Configure
+   - Select "SaaS-Analytics" repository
+   - Save and refresh Railway
+
+**Required Environment Variables for Production**:
+```
+OPENAI_API_KEY=your_openai_key
+AUTH_USERNAME=admin
+AUTH_PASSWORD=your_secure_password
+DATABASE_URL=postgresql://... (auto-set by Railway/Render when adding PostgreSQL)
+```
+
+### Files Added
+- `auth.py` - Basic authentication module
+- `AUTH.md` - Authentication setup guide
+- `DEPLOYMENT.md` - Complete deployment instructions
+- `Procfile` - Railway/Heroku deployment config
+- `.env.example` - Environment variable template
