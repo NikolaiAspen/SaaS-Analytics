@@ -1,18 +1,19 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
 
-    # Zoho Configuration
-    zoho_client_id: str
-    zoho_client_secret: str
-    zoho_refresh_token: str
-    zoho_org_id: str
+    # Zoho Configuration (optional - required only for Zoho sync features)
+    zoho_client_id: str = ""
+    zoho_client_secret: str = ""
+    zoho_refresh_token: str = ""
+    zoho_org_id: str = ""
     zoho_base: str = "https://www.zohoapis.eu"
 
-    # OpenAI Configuration
-    openai_api_key: str
+    # OpenAI Configuration (optional - required only for AI analysis features)
+    openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
     # Application Configuration
