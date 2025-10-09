@@ -174,11 +174,15 @@ async def sync_subscriptions(
                     # Handle various date formats from Zoho
                     date_str = str(date_str).strip()
                     if "T" in date_str:
-                        return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                        # Remove timezone info for PostgreSQL compatibility
+                        return dt.replace(tzinfo=None)
                     else:
                         # Try parsing as date only
                         from dateutil import parser
-                        return parser.parse(date_str)
+                        dt = parser.parse(date_str)
+                        # Remove timezone info for PostgreSQL compatibility
+                        return dt.replace(tzinfo=None)
                 except Exception:
                     return None
 
