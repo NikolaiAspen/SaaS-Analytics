@@ -110,11 +110,22 @@ uvicorn app:app --reload
 
 ## Recent Updates (2025-10)
 
-### UI Improvements
-- ✅ **Fixed Sidebar Navigation**: Added permanent left sidebar menu (240px) to all pages (dashboard, trends, forecast, drilldown pages, documents, guide, debug)
-- ✅ **MRR Trend Graph**: Added Chart.js line graph showing monthly MRR trends on `/api/trends` page
-- ✅ **Churn Display**: Churned MRR values now display in red with minus signs for better visibility
-- ✅ **"Spør Niko" Branding**: Replaced all "AI" references with "Niko" throughout the application
+### Version 2.1.0 - Niko AI Churn Analysis Improvements
+- ✅ **Complete Churn Data Access**: Niko now has access to ALL churned customers (removed .limit(100))
+- ✅ **Extended Historical View**: Shows churn details for last 12 months (up from 6)
+- ✅ **More Details Per Month**: Displays up to 20 customers per month with full details
+- ✅ **Enhanced AI Instructions**: Niko now ALWAYS includes specific customer names, amounts, and churn reasons
+- ✅ **Improved Churn Context**: Automatically groups churn by month with totals and reasons
+- ✅ **New Changelog**: Added CHANGELOG.md for version tracking and user communication
+
+### Version 2.0.0 - Major Feature Release
+- ✅ **Fixed Sidebar Navigation**: Added permanent left sidebar menu (240px) to all pages
+- ✅ **Sortable Tables**: Click column headers to sort customer data
+- ✅ **Customer Overview Page**: New "Kunder og oppsigelser" page with complete customer list
+- ✅ **Vessel & Call Sign Columns**: Added fartøy and kallesignal data to customer tables
+- ✅ **MRR Trend Graph**: Added Chart.js line graph showing monthly MRR trends
+- ✅ **Churn Display**: Churned MRR values display in red with minus signs
+- ✅ **"Spør Niko" Branding**: Replaced all "AI" references with "Niko"
 
 ### Authentication
 - ✅ **Basic Auth Implementation**: Added HTTP Basic Authentication to protect all `/api/*` routes
