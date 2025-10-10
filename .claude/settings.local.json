@@ -17,7 +17,13 @@
       "Bash(del /S /Q __pycache__)",
       "Bash(del /S /Q models__pycache__)",
       "Bash(netstat:*)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:www.zohoapis.eu)",
+      "Bash(ping:*)",
+      "Bash(.venv\\Scripts\\python.exe -m uvicorn:*)"
     ],
     "deny": [],
     "ask": []

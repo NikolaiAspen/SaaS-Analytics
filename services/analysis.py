@@ -3,15 +3,15 @@ from typing import Dict
 
 
 class AnalysisService:
-    """Service for generating natural language insights using OpenAI"""
+    """Service for generating natural language insights using OpenAI GPT-5"""
 
-    def __init__(self, api_key: str, model: str = "gpt-4o"):
+    def __init__(self, api_key: str, model: str = "gpt-5-mini"):
         self.client = AsyncOpenAI(api_key=api_key)
         self.model = model
 
     async def generate_analysis(self, metrics: Dict, trends: list = None) -> str:
         """
-        Generate natural language analysis of metrics in Norwegian
+        Generate natural language analysis of metrics in Norwegian using GPT-5-mini
 
         Args:
             metrics: Dictionary of calculated metrics
@@ -32,11 +32,10 @@ class AnalysisService:
                         "Fokuser på endringer i siste måned og viktige trender. "
                         "Strukturer analysen med klare seksjoner og linjeskift for lesbarhet. "
                         "Skriv konsist og profesjonelt, med konkrete forretningsinnsikter."
-                    ),
+                    )
                 },
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
             max_tokens=1000,
         )
 
@@ -44,7 +43,7 @@ class AnalysisService:
 
     async def ask_question(self, question: str, metrics: Dict, trends: list = None) -> str:
         """
-        Answer a specific question about the metrics data
+        Answer a specific question about the metrics data using GPT-5-mini
 
         Args:
             question: User's question in Norwegian
@@ -65,14 +64,10 @@ class AnalysisService:
                         "Du er en SaaS-analytiker som svarer på spørsmål om metrics på norsk. "
                         "Svar direkte og konkret basert på tallene du har tilgjengelig. "
                         "Hvis du ikke har nok data til å svare, si det tydelig."
-                    ),
+                    )
                 },
-                {
-                    "role": "user",
-                    "content": f"Her er dataene:\n\n{context}\n\nSpørsmål: {question}"
-                },
+                {"role": "user", "content": f"Her er dataene:\n\n{context}\n\nSpørsmål: {question}"}
             ],
-            temperature=0.7,
             max_tokens=600,
         )
 
@@ -281,87 +276,102 @@ class AnalysisService:
                 context += f"- **{plan_name}**: {data['count']} subscriptions, {data['total_mrr']:,.0f} kr MRR\n"
             context += "\n"
 
-        # Build messages with conversation history
+        # Build full input for GPT-5 (combines system instructions, conversation history, and current query)
+        system_instructions = (
+            "Du er Niko, en avansert regnskapsspesialist og dataanalytiker som har full tilgang til HELE databasen.\n\n"
+            "**FULL DATABASETILGANG:**\n"
+            "- Du har tilgang til 12 måneder med historiske data\n"
+            "- Du kan se ALLE aktive subscriptions med fullstendige detaljer\n"
+            "- Du har oversikt over ALLE kunder sortert etter MRR\n"
+            "- Du kan utføre komplekse analyser på tvers av kunder, planer, perioder og segmenter\n"
+            "- Du kan analysere trender, sammenligne perioder, identifisere mønstre og anomalier\n\n"
+            "**VIKTIG - TOLKNING AV MÅNEDSSPØRSMÅL:**\n"
+            "- Hvis brukeren spør om 'august', 'i august', 'nedgang i august' → Se på endringen TIL august (juli→august)\n"
+            "- Hvis brukeren spør om 'siste måned' → Se på nyeste måned i dataene\n"
+            "- Alltid svar med riktig månedsperiode i formatet: **[Forrige måned]→[Aktuell måned] [År]**\n\n"
+            "**VIKTIG - BRUK AV CHURN-DATA:**\n"
+            "- Du har tilgang til detaljerte churn-data med kundenavn, beløp, datoer og årsaker!\n"
+            "- 'Churned Kunder' seksjonen viser faktiske kunder gruppert per måned med churn-årsaker\n"
+            "- Når du svarer om churn, INKLUDER ALLTID:\n"
+            "  * Spesifikke kundenavn fra den aktuelle måneden\n"
+            "  * Churn-årsaker for de viktigste kundene\n"
+            "  * MRR-beløp per kunde\n"
+            "- Hvis det er mange churned kunder, fokuser på de største (høyest MRR) og grupper årsaker\n"
+            "- ALDRI si at 'detaljer ikke er tilgjengelige' - du har detaljert churn-informasjon!\n\n"
+            "**VIKTIG - BRUK AV KUNDEOVERSIKT:**\n"
+            "- Du har full tilgang til alle kunder med total MRR, antall subscriptions, fartøy og planer\n"
+            "- Når du svarer om kunder, inkluder faktiske kundenavn, MRR-beløp og relevante detaljer\n"
+            "- Du kan sammenligne kunder, identifisere top-kunder, analysere kundesegmenter\n\n"
+            "**SVARSTIL:**\n"
+            "- Svar kort, presist og utfyllende\n"
+            "- Inkluder detaljert informasjon om kunder og endringer\n"
+            "- Start alltid med hvilken måned/periode det gjelder\n"
+            "- Gi konkrete tall, kundenavn, beløp og årsaker\n"
+            "- Utfør komplekse analyser når det etterspørres\n"
+            "- INGEN introduksjoner eller konklusjoner\n"
+            "- INGEN forretningsråd eller anbefalinger\n\n"
+            "**EKSEMPEL 1:**\n"
+            "Spørsmål: Hvorfor endret MRR seg i siste måned?\n\n"
+            "Svar: **September→Oktober 2025**: MRR økte **+3,255 kr** (+0.2%).\n\n"
+            "**Nye kunder** (22 stk): Bidro **+4,200 kr** ny MRR.\n\n"
+            "**Churn** (8 stk): Tap **-2,080 kr** MRR.\n\n"
+            "**EKSEMPEL 2:**\n"
+            "Spørsmål: Hvorfor nedgang i august?\n\n"
+            "Svar: **Juli→August 2025**: MRR hadde en nedgang på **-9,038 kr** (-0.4%).\n\n"
+            "**Churn** (27 kunder): Tapte totalt **-12,500 kr** MRR.\n\n"
+            "Viktigste churned kunder:\n"
+            "- **Nordsjø Maritime AS**: 2,450 kr - *Selskapet la ned virksomheten*\n"
+            "- **Vestlandet Fisk AS**: 1,880 kr - *Byttet til konkurrent*\n"
+            "- **Kystfart AS**: 1,650 kr - *For dyrt*\n"
+            "- + 24 andre kunder\n\n"
+            "**Nye kunder** (5 stk): Bidro **+3,462 kr** ny MRR.\n\n"
+            "Netto effekt: -9,038 kr pga høyere churn enn ny MRR.\n\n"
+            "**ALLTID INKLUDER:**\n"
+            "- Måned/periode\n"
+            "- Kundenavn (faktiske navn fra data)\n"
+            "- Beløp i NOK\n"
+            "- Plantype/abonnement hvis tilgjengelig\n"
+            "- Årsak/grunn hvis tilgjengelig\n"
+            "- Totalsummer og antall\n\n"
+        )
+
+        # Build conversation history string for GPT-5
+        conversation_context = ""
+        if conversation_history:
+            conversation_context = "**TIDLIGERE SAMTALE:**\n\n"
+            for item in conversation_history[-3:]:  # Last 3 exchanges
+                conversation_context += f"Spørsmål: {item.get('question', '')}\n"
+                conversation_context += f"Svar: {item.get('answer', '')}\n\n"
+            conversation_context += "---\n\n"
+
+        # Combine everything into one input
+        full_input = (
+            f"{system_instructions}"
+            f"{conversation_context}"
+            f"{context}\n---\n\n"
+            f"**SPØRSMÅL:** {question}\n\n"
+            "Analyser dataene ovenfor og gi et presist, innsiktsfullt svar."
+        )
+
+        # Build messages array for Chat Completions API
         messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Du er Niko, en avansert regnskapsspesialist og dataanalytiker som har full tilgang til HELE databasen.\n\n"
-                    "**FULL DATABASETILGANG:**\n"
-                    "- Du har tilgang til 12 måneder med historiske data\n"
-                    "- Du kan se ALLE aktive subscriptions med fullstendige detaljer\n"
-                    "- Du har oversikt over ALLE kunder sortert etter MRR\n"
-                    "- Du kan utføre komplekse analyser på tvers av kunder, planer, perioder og segmenter\n"
-                    "- Du kan analysere trender, sammenligne perioder, identifisere mønstre og anomalier\n\n"
-                    "**VIKTIG - TOLKNING AV MÅNEDSSPØRSMÅL:**\n"
-                    "- Hvis brukeren spør om 'august', 'i august', 'nedgang i august' → Se på endringen TIL august (juli→august)\n"
-                    "- Hvis brukeren spør om 'siste måned' → Se på nyeste måned i dataene\n"
-                    "- Alltid svar med riktig månedsperiode i formatet: **[Forrige måned]→[Aktuell måned] [År]**\n\n"
-                    "**VIKTIG - BRUK AV CHURN-DATA:**\n"
-                    "- Du har tilgang til detaljerte churn-data med kundenavn, beløp, datoer og årsaker!\n"
-                    "- 'Churned Kunder' seksjonen viser faktiske kunder gruppert per måned med churn-årsaker\n"
-                    "- Når du svarer om churn, INKLUDER ALLTID:\n"
-                    "  * Spesifikke kundenavn fra den aktuelle måneden\n"
-                    "  * Churn-årsaker for de viktigste kundene\n"
-                    "  * MRR-beløp per kunde\n"
-                    "- Hvis det er mange churned kunder, fokuser på de største (høyest MRR) og grupper årsaker\n"
-                    "- ALDRI si at 'detaljer ikke er tilgjengelige' - du har detaljert churn-informasjon!\n\n"
-                    "**VIKTIG - BRUK AV KUNDEOVERSIKT:**\n"
-                    "- Du har full tilgang til alle kunder med total MRR, antall subscriptions, fartøy og planer\n"
-                    "- Når du svarer om kunder, inkluder faktiske kundenavn, MRR-beløp og relevante detaljer\n"
-                    "- Du kan sammenligne kunder, identifisere top-kunder, analysere kundesegmenter\n\n"
-                    "**SVARSTIL:**\n"
-                    "- Svar kort, presist og utfyllende\n"
-                    "- Inkluder detaljert informasjon om kunder og endringer\n"
-                    "- Start alltid med hvilken måned/periode det gjelder\n"
-                    "- Gi konkrete tall, kundenavn, beløp og årsaker\n"
-                    "- Utfør komplekse analyser når det etterspørres\n"
-                    "- INGEN introduksjoner eller konklusjoner\n"
-                    "- INGEN forretningsråd eller anbefalinger\n\n"
-                    "**EKSEMPEL 1:**\n"
-                    "Spørsmål: Hvorfor endret MRR seg i siste måned?\n\n"
-                    "Svar: **September→Oktober 2025**: MRR økte **+3,255 kr** (+0.2%).\n\n"
-                    "**Nye kunder** (22 stk): Bidro **+4,200 kr** ny MRR.\n\n"
-                    "**Churn** (8 stk): Tap **-2,080 kr** MRR.\n\n"
-                    "**EKSEMPEL 2:**\n"
-                    "Spørsmål: Hvorfor nedgang i august?\n\n"
-                    "Svar: **Juli→August 2025**: MRR hadde en nedgang på **-9,038 kr** (-0.4%).\n\n"
-                    "**Churn** (27 kunder): Tapte totalt **-12,500 kr** MRR.\n\n"
-                    "Viktigste churned kunder:\n"
-                    "- **Nordsjø Maritime AS**: 2,450 kr - *Selskapet la ned virksomheten*\n"
-                    "- **Vestlandet Fisk AS**: 1,880 kr - *Byttet til konkurrent*\n"
-                    "- **Kystfart AS**: 1,650 kr - *For dyrt*\n"
-                    "- + 24 andre kunder\n\n"
-                    "**Nye kunder** (5 stk): Bidro **+3,462 kr** ny MRR.\n\n"
-                    "Netto effekt: -9,038 kr pga høyere churn enn ny MRR.\n\n"
-                    "**ALLTID INKLUDER:**\n"
-                    "- Måned/periode\n"
-                    "- Kundenavn (faktiske navn fra data)\n"
-                    "- Beløp i NOK\n"
-                    "- Plantype/abonnement hvis tilgjengelig\n"
-                    "- Årsak/grunn hvis tilgjengelig\n"
-                    "- Totalsummer og antall"
-                )
-            }
+            {"role": "system", "content": system_instructions}
         ]
 
-        # Add conversation history for context
+        # Add conversation history to messages if available
         if conversation_history:
             for item in conversation_history[-3:]:  # Last 3 exchanges
-                messages.append({"role": "user", "content": item.get("question", "")})
-                messages.append({"role": "assistant", "content": item.get("answer", "")})
+                messages.append({"role": "user", "content": item.get('question', '')})
+                messages.append({"role": "assistant", "content": item.get('answer', '')})
 
-        # Add current question with full context
-        messages.append({
-            "role": "user",
-            "content": f"{context}\n---\n\n**SPØRSMÅL:** {question}\n\nAnalyser dataene ovenfor og gi et presist, innsiktsfullt svar."
-        })
+        # Add current context and question
+        user_message = f"{context}\n---\n\n**SPØRSMÅL:** {question}\n\nAnalyser dataene ovenfor og gi et presist, innsiktsfullt svar."
+        messages.append({"role": "user", "content": user_message})
 
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=0.3,
-            max_tokens=1000,  # Økt kapasitet for komplekse analyser med full database
+            max_tokens=1000,  # Enough for detailed answers with full database access
         )
 
         return response.choices[0].message.content.strip()
@@ -471,7 +481,7 @@ Nåværende Metrics:
 
     async def generate_cohort_analysis(self, cohort_data: Dict) -> str:
         """
-        Generate analysis for cohort data
+        Generate analysis for cohort data using GPT-5-mini
 
         Args:
             cohort_data: Dictionary containing cohort retention data
@@ -479,27 +489,25 @@ Nåværende Metrics:
         Returns:
             Analysis text in Norwegian
         """
-        prompt = f"""
-Analyser følgende kohortdata for kundefastholdelse og skriv en kort rapport på norsk:
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Du er en SaaS-analytiker som analyserer kohortdata på norsk."
+                },
+                {
+                    "role": "user",
+                    "content": f"""Analyser følgende kohortdata for kundefastholdelse og skriv en kort rapport på norsk:
 
 {cohort_data}
 
 Fokuser på:
 1. Hvilke kohorter som har best/dårligst fastholdelse
 2. Trender over tid
-3. Konkrete anbefalinger for å forbedre fastholdelse
-"""
-
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Du er en SaaS-analytiker som analyserer kohortdata på norsk.",
-                },
-                {"role": "user", "content": prompt},
+3. Konkrete anbefalinger for å forbedre fastholdelse"""
+                }
             ],
-            temperature=0.7,
             max_tokens=600,
         )
 
