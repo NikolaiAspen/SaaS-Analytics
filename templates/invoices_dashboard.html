@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Faktura-basert MRR Dashboard</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 240px;
+            height: 100vh;
+            background: rgba(18, 25, 51, 0.95);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .sidebar-logo {
+            padding: 24px 20px;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--ink);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .sidebar-nav {
+            padding: 12px 0;
+        }
+
+        .nav-section {
+            padding: 20px 0 8px 0;
+        }
+
+        .nav-section-title {
+            padding: 0 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 10px 20px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--ink);
+        }
+
+        .nav-link.active {
+            background: rgba(61, 220, 151, 0.15);
+            color: var(--good);
+            border-left-color: var(--good);
+        }
+
+        .nav-link-icon {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        .nav-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.06);
+            margin: 12px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            margin-left: 240px;
+            padding: 20px;
+        }
+
+        header {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            margin: 0;
+        }
+
+        .ver {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            color: var(--ink);
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .kpi {
+            padding: 16px;
+            border-radius: 14px;
+            background: #0f1530;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            transition: all 0.2s;
+        }
+
+        .kpi:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+            transform: translateY(-2px);
+        }
+
+        .kpi h3 {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: var(--muted);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .kpi .val {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .good .val {
+            color: var(--good);
+        }
+
+        .bad .val {
+            color: var(--bad);
+        }
+
+        .warn .val {
+            color: var(--warn);
+        }
+
+        .kpi .subtext {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        .info-note {
+            background: rgba(159, 177, 255, 0.1);
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            color: var(--muted);
+            font-size: 14px;
+            border-left: 3px solid var(--muted);
+        }
+
+        button, a.button {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: #0f1530;
+            color: var(--ink);
+            padding: 12px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+
+        button:hover, a.button:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(15, 21, 48, 0.9);
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: transparent;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #65398d 100%);
+            border-color: transparent;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 0;
+                overflow: hidden;
+            }
+
+            .container {
+                margin-left: 0;
+            }
+
+            .kpi-grid {
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-logo">SaaS Analytics</div>
+        <nav class="sidebar-nav">
+            <div class="nav-section-title">SUBSCRIPTIONS</div>
+            <a href="/api/dashboard" class="nav-link">
+                <span class="nav-link-icon">📊</span>
+                <span>Dashboard</span>
+            </a>
+            <a href="/api/trends" class="nav-link">
+                <span class="nav-link-icon">📈</span>
+                <span>Månedlige Trender</span>
+            </a>
+            <a href="/api/forecast" class="nav-link">
+                <span class="nav-link-icon">🔮</span>
+                <span>MRR Forecast</span>
+            </a>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section-title">FAKTURAER</div>
+            <a href="/api/invoices/dashboard" class="nav-link active">
+                <span class="nav-link-icon">🧾</span>
+                <span>Faktura Dashboard</span>
+            </a>
+            <a href="/api/invoices/trends" class="nav-link">
+                <span class="nav-link-icon">📊</span>
+                <span>Faktura Trender</span>
+            </a>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">ANALYSE</div>
+                <a href="/api/drilldown/mrr" class="nav-link">
+                    <span class="nav-link-icon">💰</span>
+                    <span>MRR Grunnlag</span>
+                </a>
+                <a href="/api/drilldown/customers" class="nav-link">
+                    <span class="nav-link-icon">👥</span>
+                    <span>Kunder</span>
+                </a>
+                <a href="/api/drilldown/churn" class="nav-link">
+                    <span class="nav-link-icon">📉</span>
+                    <span>Churn</span>
+                </a>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">SYSTEM</div>
+                <a href="/api/documents" class="nav-link">
+                    <span class="nav-link-icon">📄</span>
+                    <span>Importerte Filer</span>
+                </a>
+                <a href="/api/guide" class="nav-link">
+                    <span class="nav-link-icon">📖</span>
+                    <span>Brukerveiledning</span>
+                </a>
+                <a href="/api/debug" class="nav-link" style="opacity: 0.6;">
+                    <span class="nav-link-icon">🔍</span>
+                    <span>Database Info</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>🧾 Faktura-basert MRR Dashboard</h1>
+            <span class="ver">Oppdatert: {{ metrics.snapshot_date.strftime('%d.%m.%Y %H:%M') }}</span>
+        </header>
+
+        <div class="info-note">
+            <strong>ℹ️ Om Faktura-basert MRR:</strong> Dette dashboardet beregner MRR basert på fakturaer fra Zoho Billing, ikke subscriptions. MRR beregnes fra fakturaperiodens lengde i beskrivelsesfeltet.
+        </div>
+
+        <div style="margin-bottom: 16px;">
+            <button onclick="syncInvoices()" style="background: var(--good); border: none; color: #0b1020; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500;">🔄 Synkroniser fakturaer fra Zoho</button>
+        </div>
+        <div id="syncStatus" style="display: none; margin-top: 12px; padding: 12px; border-radius: 10px; font-size: 14px;"></div>
+
+        <div class="card">
+            <h2>Nøkkeltall (fra fakturaer)</h2>
+            <div class="kpi-grid">
+                <div class="kpi">
+                    <h3>MRR</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.mrr) }} kr</div>
+                    <div class="subtext">Månedlig inntekt</div>
+                </div>
+
+                <div class="kpi">
+                    <h3>ARR</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.arr) }} kr</div>
+                    <div class="subtext">Årlig inntekt</div>
+                </div>
+
+                <div class="kpi good">
+                    <h3>ARPU</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.arpu) }} kr</div>
+                    <div class="subtext">Per kunde</div>
+                </div>
+
+                <div class="kpi">
+                    <h3>Kunder</h3>
+                    <div class="val">{{ metrics.total_customers }}</div>
+                    <div class="subtext">Aktive med fakturaer</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📊 Hvordan MRR beregnes fra fakturaer</h2>
+            <p style="color: var(--muted); line-height: 1.7; margin-bottom: 12px;">
+                MRR beregnes ved å analysere <strong>beskrivelsesfeltet</strong> på hver fakturalinje for å finne fakturaperioden:
+            </p>
+            <ul style="color: var(--muted); margin-left: 20px; line-height: 1.8;">
+                <li><strong>Norsk format:</strong> "Gjelder perioden 10 Oct 2025 til 09 Nov 2025" → 1 måned</li>
+                <li><strong>Engelsk format:</strong> "Charges for this duration (from 10-October-2025 to 9-October-2026)" → 12 måneder</li>
+                <li><strong>Beregning:</strong> MRR = Pris ÷ Antall måneder i periode</li>
+            </ul>
+            <div style="background: rgba(61, 220, 151, 0.1); padding: 12px 16px; border-radius: 10px; margin-top: 16px; border-left: 3px solid var(--good);">
+                <strong style="color: var(--good);">✓ Eksempel:</strong>
+                <p style="color: var(--muted); margin-top: 8px; line-height: 1.6;">
+                    Faktura på <strong>8280 NOK</strong> for periode <strong>10 Oct 2025 til 09 Oct 2026</strong> (12 måneder)<br>
+                    → MRR = 8280 ÷ 12 = <strong style="color: var(--good);">690 NOK/mnd</strong>
+                </p>
+            </div>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <a href="/api/invoices/trends" class="button btn-primary">📈 Se månedlige trender →</a>
+        </div>
+    </div>
+
+    <script>
+        async function syncInvoices() {
+            const statusDiv = document.getElementById('syncStatus');
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = 'rgba(159, 177, 255, 0.1)';
+            statusDiv.style.color = 'var(--muted)';
+            statusDiv.innerHTML = '🔄 Synkroniserer fakturaer fra Zoho Billing... Dette kan ta noen minutter.';
+
+            try {
+                const response = await fetch('/api/invoices/sync', { method: 'POST' });
+                const data = await response.json();
+
+                if (response.ok) {
+                    statusDiv.style.background = 'rgba(61, 220, 151, 0.1)';
+                    statusDiv.style.color = 'var(--good)';
+                    statusDiv.innerHTML = `✅ ${data.message}`;
+
+                    // Reload page after 2 seconds
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    throw new Error(data.detail || 'Synkronisering feilet');
+                }
+            } catch (error) {
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                statusDiv.innerHTML = `❌ Feil: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

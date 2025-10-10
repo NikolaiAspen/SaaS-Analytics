@@ -12,8 +12,9 @@ from pydantic import BaseModel
 
 from config import settings
 from database import init_db, get_session
-from services import ZohoClient, MetricsCalculator, AnalysisService, ZohoReportImporter
+from services import ZohoClient, MetricsCalculator, AnalysisService, ZohoReportImporter, InvoiceService
 from models.subscription import Subscription, MetricsSnapshot, SyncStatus, MonthlyMRRSnapshot
+from models.invoice import Invoice, InvoiceLineItem, InvoiceMRRSnapshot
 from auth import verify_credentials
 
 
@@ -167,12 +168,16 @@ async def sync_subscriptions(
 
         for sub_data in zoho_subs:
             # Parse dates with better error handling
-            def parse_date(date_str):
-                if not date_str:
+            def parse_date(date_value):
+                if not date_value:
                     return None
                 try:
-                    # Handle various date formats from Zoho
-                    date_str = str(date_str).strip()
+                    # If already a datetime object (from Zoho API), just strip timezone
+                    if isinstance(date_value, datetime):
+                        return date_value.replace(tzinfo=None)
+
+                    # Handle string formats from Zoho
+                    date_str = str(date_value).strip()
                     if "T" in date_str:
                         dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                         # Remove timezone info for PostgreSQL compatibility
@@ -183,7 +188,8 @@ async def sync_subscriptions(
                         dt = parser.parse(date_str)
                         # Remove timezone info for PostgreSQL compatibility
                         return dt.replace(tzinfo=None)
-                except Exception:
+                except Exception as e:
+                    print(f"Warning: Failed to parse date '{date_value}': {e}")
                     return None
 
             created_time = parse_date(sub_data.get("created_time"))
@@ -2128,6 +2134,317 @@ async def mrr_forecast(request: Request, session: AsyncSession = Depends(get_ses
         raise HTTPException(status_code=500, detail=f"Forecast failed: {str(e)}")
 
 
+# ============================================================================
+# INVOICE-BASED MRR ENDPOINTS
+# Separate system for calculating MRR from invoices (not subscriptions)
+# ============================================================================
+
+@app.post("/api/invoices/sync")
+async def sync_invoices(
+    zoho: ZohoClient = Depends(get_zoho_client),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Sync invoices from Zoho Billing and calculate MRR based on invoice line items
+
+    This uses invoice periods (from description field) to calculate accurate MRR
+    """
+    try:
+        import httpx
+        from models.invoice import Invoice, InvoiceLineItem
+        from services.invoice import InvoiceService
+
+        invoice_service = InvoiceService(session)
+        headers = await zoho._get_headers()
+
+        # Fetch invoices from Zoho
+        print("Fetching invoices from Zoho...")
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            # Get all invoices (paginated)
+            all_invoices = []
+            page = 1
+            per_page = 200
+
+            while True:
+                response = await client.get(
+                    f"{zoho.base_url}/billing/v1/invoices",
+                    headers=headers,
+                    params={"per_page": per_page, "page": page}
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                invoices = data.get("invoices", [])
+                if not invoices:
+                    break
+
+                all_invoices.extend(invoices)
+
+                if len(invoices) < per_page:
+                    break
+
+                page += 1
+
+            print(f"Fetched {len(all_invoices)} invoices from Zoho")
+
+            # Process each invoice and get full details
+            synced_count = 0
+            total_invoices = len(all_invoices)
+
+            for inv_data in all_invoices:
+                invoice_id = inv_data["invoice_id"]
+
+                # Get full invoice details including line items
+                detail_response = await client.get(
+                    f"{zoho.base_url}/billing/v1/invoices/{invoice_id}",
+                    headers=headers
+                )
+                detail_response.raise_for_status()
+                invoice_detail = detail_response.json().get("invoice", {})
+
+                # Rate limiting: sleep 0.3s between requests to avoid 429 errors
+                import asyncio
+                await asyncio.sleep(0.3)
+
+                # Parse dates
+                def parse_date(date_str):
+                    if not date_str:
+                        return None
+                    try:
+                        if isinstance(date_str, datetime):
+                            return date_str.replace(tzinfo=None)
+                        date_str = str(date_str).strip()
+                        if "T" in date_str:
+                            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                            return dt.replace(tzinfo=None)
+                        else:
+                            from dateutil import parser
+                            dt = parser.parse(date_str)
+                            return dt.replace(tzinfo=None)
+                    except Exception as e:
+                        print(f"Warning: Failed to parse date '{date_str}': {e}")
+                        return None
+
+                invoice_date = parse_date(invoice_detail.get("invoice_date"))
+                due_date = parse_date(invoice_detail.get("due_date"))
+                created_time = parse_date(invoice_detail.get("created_time"))
+                updated_time = parse_date(invoice_detail.get("updated_time"))
+
+                # Create or update invoice
+                invoice = await session.get(Invoice, invoice_id)
+
+                if invoice:
+                    # Update existing
+                    invoice.invoice_number = invoice_detail.get("invoice_number", "")
+                    invoice.invoice_date = invoice_date
+                    invoice.due_date = due_date
+                    invoice.customer_id = invoice_detail.get("customer_id", "")
+                    invoice.customer_name = invoice_detail.get("customer_name", "")
+                    invoice.customer_email = invoice_detail.get("email", "")
+                    invoice.currency_code = invoice_detail.get("currency_code", "NOK")
+                    invoice.sub_total = float(invoice_detail.get("sub_total", 0))
+                    invoice.tax_total = float(invoice_detail.get("tax_total", 0))
+                    invoice.total = float(invoice_detail.get("total", 0))
+                    invoice.balance = float(invoice_detail.get("balance", 0))
+                    invoice.status = invoice_detail.get("status", "")
+                    invoice.transaction_type = invoice_detail.get("transaction_type", "")
+                    invoice.created_time = created_time
+                    invoice.updated_time = updated_time
+                    invoice.last_synced = datetime.utcnow()
+                else:
+                    # Create new
+                    invoice = Invoice(
+                        id=invoice_id,
+                        invoice_number=invoice_detail.get("invoice_number", ""),
+                        invoice_date=invoice_date,
+                        due_date=due_date,
+                        customer_id=invoice_detail.get("customer_id", ""),
+                        customer_name=invoice_detail.get("customer_name", ""),
+                        customer_email=invoice_detail.get("email", ""),
+                        currency_code=invoice_detail.get("currency_code", "NOK"),
+                        sub_total=float(invoice_detail.get("sub_total", 0)),
+                        tax_total=float(invoice_detail.get("tax_total", 0)),
+                        total=float(invoice_detail.get("total", 0)),
+                        balance=float(invoice_detail.get("balance", 0)),
+                        status=invoice_detail.get("status", ""),
+                        transaction_type=invoice_detail.get("transaction_type", ""),
+                        created_time=created_time,
+                        updated_time=updated_time,
+                    )
+                    session.add(invoice)
+
+                # Process line items
+                line_items = invoice_detail.get("invoice_items", [])
+
+                # Delete existing line items for this invoice
+                from sqlalchemy import delete
+                stmt_delete = delete(InvoiceLineItem).where(InvoiceLineItem.invoice_id == invoice_id)
+                await session.execute(stmt_delete)
+
+                # Create new line items
+                for item_data in line_items:
+                    # Calculate MRR from line item
+                    mrr_calc = invoice_service.calculate_mrr_from_line_item(item_data)
+
+                    line_item = InvoiceLineItem(
+                        invoice_id=invoice_id,
+                        item_id=item_data.get("item_id", ""),
+                        product_id=item_data.get("product_id", ""),
+                        subscription_id=item_data.get("subscription_id", ""),
+                        name=item_data.get("name", ""),
+                        description=item_data.get("description", ""),
+                        code=item_data.get("code", ""),
+                        unit=item_data.get("unit", ""),
+                        price=float(item_data.get("price", 0)),
+                        quantity=int(item_data.get("quantity", 1)),
+                        item_total=float(item_data.get("item_total", 0)),
+                        tax_percentage=float(item_data.get("tax_percentage", 0)),
+                        tax_name=item_data.get("tax_name", ""),
+                        period_start_date=mrr_calc["period_start_date"],
+                        period_end_date=mrr_calc["period_end_date"],
+                        period_months=mrr_calc["period_months"],
+                        mrr_per_month=mrr_calc["mrr_per_month"],
+                    )
+                    session.add(line_item)
+
+                synced_count += 1
+
+                # Commit and log progress periodically
+                if synced_count % 50 == 0:
+                    await session.commit()
+                    progress_pct = (synced_count / total_invoices) * 100
+                    print(f"Progress: {synced_count}/{total_invoices} invoices ({progress_pct:.1f}%)")
+
+            await session.commit()
+            print(f"✓ Synced {synced_count} invoices with line items")
+
+        # Generate monthly snapshots for last 12 months
+        print("\nGenerating monthly MRR snapshots...")
+        today = datetime.utcnow()
+        snapshots_created = []
+
+        for i in range(12):
+            month_date = today - relativedelta(months=i)
+            month_str = month_date.strftime("%Y-%m")
+
+            try:
+                await invoice_service.generate_monthly_snapshot(month_str)
+                snapshots_created.append(month_str)
+                print(f"  ✓ Created snapshot for {month_str}")
+            except Exception as e:
+                print(f"  ✗ Failed to create snapshot for {month_str}: {e}")
+
+        print(f"✓ Generated {len(snapshots_created)} monthly snapshots")
+
+        return {
+            "status": "success",
+            "synced_invoices": synced_count,
+            "snapshots_created": len(snapshots_created),
+            "message": f"Successfully synced {synced_count} invoices and generated {len(snapshots_created)} monthly snapshots",
+        }
+
+    except Exception as e:
+        await session.rollback()
+        import traceback
+        error_detail = f"Invoice sync failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        print(error_detail)
+        raise HTTPException(status_code=500, detail=f"Invoice sync failed: {str(e)}")
+
+
+@app.get("/api/invoices/dashboard", response_class=HTMLResponse)
+async def invoices_dashboard(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Invoice-based MRR dashboard (separate from subscription-based MRR)
+    """
+    try:
+        from services.invoice import InvoiceService
+
+        invoice_service = InvoiceService(session)
+
+        # Get current month snapshot
+        current_month = datetime.utcnow().strftime("%Y-%m")
+
+        # Calculate current metrics
+        mrr = await invoice_service.get_mrr_for_month(current_month)
+        arr = mrr * 12
+        total_customers = await invoice_service.get_unique_customers_for_month(current_month)
+        arpu = mrr / total_customers if total_customers > 0 else 0
+
+        metrics = {
+            "mrr": round(mrr, 2),
+            "arr": round(arr, 2),
+            "total_customers": total_customers,
+            "arpu": round(arpu, 2),
+            "snapshot_date": datetime.utcnow(),
+        }
+
+        return templates.TemplateResponse(
+            "invoices_dashboard.html",
+            {
+                "request": request,
+                "metrics": metrics,
+                "active_page": "invoices",
+            },
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Invoice dashboard failed: {str(e)}")
+
+
+@app.get("/api/invoices/trends", response_class=HTMLResponse)
+async def invoices_trends(request: Request, session: AsyncSession = Depends(get_session)):
+    """
+    Monthly trends view for invoice-based MRR
+    """
+    try:
+        from services.invoice import InvoiceService
+
+        invoice_service = InvoiceService(session)
+        trends = await invoice_service.get_monthly_trends(months=12)
+
+        return templates.TemplateResponse(
+            "invoices_trends.html",
+            {
+                "request": request,
+                "trends": trends,
+                "active_page": "invoices",
+            },
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Invoice trends failed: {str(e)}")
+
+
+@app.get("/api/invoices/monthly-trends")
+async def get_invoice_monthly_trends(
+    session: AsyncSession = Depends(get_session),
+    months: int = 12,
+):
+    """
+    Get month-over-month trends for invoice-based MRR (JSON API)
+    """
+    try:
+        from services.invoice import InvoiceService
+
+        invoice_service = InvoiceService(session)
+        trends = await invoice_service.get_monthly_trends(months=months)
+
+        return {
+            "status": "success",
+            "trends": trends,
+            "data_source": "invoice_calculation",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get invoice trends: {str(e)}")
+
+
+# ============================================================================
+# DEBUG ENDPOINTS
+# ============================================================================
+
 @app.get("/api/dump-non-renewing")
 async def dump_non_renewing():
     """Dump raw data for all non-renewing subscriptions from Zoho API"""
@@ -2144,6 +2461,105 @@ async def dump_non_renewing():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Dump failed: {str(e)}")
+
+
+@app.get("/api/debug-invoices")
+async def debug_invoices(zoho: ZohoClient = Depends(get_zoho_client)):
+    """Debug endpoint to analyze invoice, product, and plan structure from Zoho"""
+    try:
+        import json
+        import httpx
+
+        headers = await zoho._get_headers()
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Fetch invoices list
+            invoices_response = await client.get(
+                f"{zoho.base_url}/billing/v1/invoices",
+                headers=headers,
+                params={"per_page": 5}
+            )
+            invoices_response.raise_for_status()
+            invoices_data = invoices_response.json()
+
+            # Get first 3 invoice IDs and fetch full details including line items
+            invoice_details = []
+            if invoices_data.get("invoices"):
+                for inv in invoices_data["invoices"][:3]:  # Get 3 sample invoices
+                    invoice_id = inv["invoice_id"]
+                    try:
+                        # Try Zoho Billing endpoint for full invoice detail
+                        invoice_detail_response = await client.get(
+                            f"{zoho.base_url}/billing/v1/invoices/{invoice_id}",
+                            headers=headers
+                        )
+                        invoice_detail_response.raise_for_status()
+                        invoice_detail = invoice_detail_response.json()
+                        invoice_details.append({
+                            "invoice_number": inv.get("invoice_number"),
+                            "customer_name": inv.get("customer_name"),
+                            "total": inv.get("total"),
+                            "invoice_date": inv.get("invoice_date"),
+                            "detail": invoice_detail
+                        })
+                    except Exception as e:
+                        print(f"Failed to fetch invoice {invoice_id}: {e}")
+                        invoice_details.append({
+                            "invoice_number": inv.get("invoice_number"),
+                            "error": str(e)
+                        })
+
+            # Fetch products
+            products_response = await client.get(
+                f"{zoho.base_url}/billing/v1/products",
+                headers=headers,
+                params={"filter_by": "ProductStatus.All", "per_page": 10}
+            )
+            products_response.raise_for_status()
+            products_data = products_response.json()
+
+            # Fetch plans
+            plans_response = await client.get(
+                f"{zoho.base_url}/billing/v1/plans",
+                headers=headers,
+                params={"filter_by": "PlanStatus.All", "per_page": 10}
+            )
+            plans_response.raise_for_status()
+            plans_data = plans_response.json()
+
+        # Pretty print to console for analysis
+        print("\n" + "="*80)
+        print("INVOICE DETAILS (with line items)")
+        print("="*80)
+        print(json.dumps(invoice_details, indent=2))
+
+        print("\n" + "="*80)
+        print("PRODUCTS STRUCTURE")
+        print("="*80)
+        print(json.dumps(products_data, indent=2))
+
+        print("\n" + "="*80)
+        print("PLANS STRUCTURE")
+        print("="*80)
+        print(json.dumps(plans_data, indent=2))
+
+        return {
+            "status": "success",
+            "message": "Check console for detailed output",
+            "summary": {
+                "invoices_count": len(invoices_data.get("invoices", [])),
+                "products_count": len(products_data.get("products", [])),
+                "plans_count": len(plans_data.get("plans", [])),
+                "invoice_details": invoice_details,
+                "sample_product": products_data.get("products", [{}])[0] if products_data.get("products") else None,
+                "sample_plan": plans_data.get("plans", [{}])[0] if plans_data.get("plans") else None,
+            }
+        }
+    except Exception as e:
+        import traceback
+        error_detail = f"Debug failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        print(error_detail)
+        raise HTTPException(status_code=500, detail=f"Debug failed: {str(e)}")
 
 
 @app.get("/health")
