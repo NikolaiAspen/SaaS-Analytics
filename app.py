@@ -1493,9 +1493,9 @@ async def ask_niko_comprehensive(
     try:
         calculator = MetricsCalculator(session)
 
-        # Get subscription metrics and trends (4 måneder for historisk kontekst)
+        # Get subscription metrics and trends (12 måneder for historisk kontekst)
         subscription_metrics = await calculator.get_metrics_summary()
-        subscription_trends = await calculator.get_monthly_trends_from_snapshots(months=4)
+        subscription_trends = await calculator.get_monthly_trends_from_snapshots(months=12)
 
         # Get invoice metrics and trends if available
         invoice_metrics = None
@@ -1520,8 +1520,8 @@ async def ask_niko_comprehensive(
                     'active_invoices': latest_invoice_snapshot.active_invoices,
                 }
 
-                # Get invoice trends (kun 3 måneder)
-                stmt = select(InvoiceMRRSnapshot).order_by(InvoiceMRRSnapshot.month.desc()).limit(3)
+                # Get invoice trends (12 måneder)
+                stmt = select(InvoiceMRRSnapshot).order_by(InvoiceMRRSnapshot.month.desc()).limit(12)
                 result = await session.execute(stmt)
                 snapshots = result.scalars().all()
 
@@ -1569,20 +1569,20 @@ async def ask_niko_comprehensive(
         except Exception as e:
             print(f"Could not load churn details: {e}")
 
-        # Get new customer details (siste 5 nye kunder)
+        # Get new customer details (siste 12 måneder, opptil 100 kunder)
         new_customer_details = []
         try:
             from models.subscription import Subscription
             from sqlalchemy import select
             from datetime import datetime, timedelta
 
-            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            twelve_months_ago = datetime.utcnow() - timedelta(days=365)
             stmt = (
                 select(Subscription)
-                .where(Subscription.activated_at >= thirty_days_ago)
+                .where(Subscription.activated_at >= twelve_months_ago)
                 .where(Subscription.status.in_(['live', 'non_renewing']))
                 .order_by(Subscription.activated_at.desc())
-                .limit(5)
+                .limit(100)
             )
             result = await session.execute(stmt)
             new_subs = result.scalars().all()
@@ -1592,12 +1592,84 @@ async def ask_niko_comprehensive(
                     'customer_name': sub.customer_name,
                     'amount': sub.amount,
                     'plan_name': sub.plan_name,
-                    'created_at': sub.activated_at.strftime('%Y-%m-%d') if sub.activated_at else None
+                    'activated_at': sub.activated_at.strftime('%Y-%m-%d') if sub.activated_at else None
                 })
         except Exception as e:
             print(f"Could not load new customer details: {e}")
 
-        # Ask Niko with full context
+        # Get ALL active subscriptions for full database access
+        all_subscriptions = []
+        try:
+            from models.subscription import Subscription
+            from sqlalchemy import select
+
+            stmt = (
+                select(Subscription)
+                .where(Subscription.status.in_(['live', 'non_renewing']))
+                .order_by(Subscription.customer_name)
+            )
+            result = await session.execute(stmt)
+            subs = result.scalars().all()
+
+            for sub in subs:
+                all_subscriptions.append({
+                    'customer_id': sub.customer_id,
+                    'customer_name': sub.customer_name,
+                    'plan_code': sub.plan_code,
+                    'plan_name': sub.plan_name,
+                    'status': sub.status,
+                    'amount': sub.amount,
+                    'interval': sub.interval,
+                    'interval_unit': sub.interval_unit,
+                    'vessel_name': sub.vessel_name,
+                    'call_sign': sub.call_sign,
+                    'activated_at': sub.activated_at.strftime('%Y-%m-%d') if sub.activated_at else None,
+                    'cancelled_at': sub.cancelled_at.strftime('%Y-%m-%d') if sub.cancelled_at else None,
+                    'expires_at': sub.expires_at.strftime('%Y-%m-%d') if sub.expires_at else None,
+                })
+        except Exception as e:
+            print(f"Could not load all subscriptions: {e}")
+
+        # Get customer summary grouped by company
+        customer_summary = []
+        try:
+            from models.subscription import Subscription
+            from sqlalchemy import select, func
+            from collections import defaultdict
+
+            stmt = select(Subscription).where(Subscription.status.in_(['live', 'non_renewing']))
+            result = await session.execute(stmt)
+            subs = result.scalars().all()
+
+            # Group by customer
+            customers = defaultdict(lambda: {'subscriptions': [], 'total_mrr': 0, 'vessels': set(), 'plans': set()})
+            for sub in subs:
+                # Calculate MRR
+                interval_months = sub.interval if sub.interval_unit == 'months' else (12 if sub.interval_unit == 'years' else 1)
+                mrr = (sub.amount / 1.25) / interval_months if sub.amount else 0
+
+                customers[sub.customer_name]['subscriptions'].append(sub.plan_name)
+                customers[sub.customer_name]['total_mrr'] += mrr
+                customers[sub.customer_name]['vessels'].add(sub.vessel_name if sub.vessel_name else 'N/A')
+                customers[sub.customer_name]['plans'].add(sub.plan_name if sub.plan_name else 'N/A')
+                customers[sub.customer_name]['customer_id'] = sub.customer_id
+
+            for customer_name, data in customers.items():
+                customer_summary.append({
+                    'customer_name': customer_name,
+                    'customer_id': data['customer_id'],
+                    'total_mrr': data['total_mrr'],
+                    'subscription_count': len(data['subscriptions']),
+                    'vessels': list(data['vessels']),
+                    'plans': list(data['plans']),
+                })
+
+            # Sort by MRR descending
+            customer_summary.sort(key=lambda x: x['total_mrr'], reverse=True)
+        except Exception as e:
+            print(f"Could not load customer summary: {e}")
+
+        # Ask Niko with full context (inkluderer nå hele databasen)
         answer = await analysis_service.ask_comprehensive(
             question=request.question,
             subscription_metrics=subscription_metrics,
@@ -1606,6 +1678,8 @@ async def ask_niko_comprehensive(
             invoice_trends=invoice_trends,
             churn_details=churn_details,
             new_customer_details=new_customer_details,
+            all_subscriptions=all_subscriptions,
+            customer_summary=customer_summary,
             conversation_history=request.conversation_history
         )
 

@@ -5,7 +5,7 @@ from typing import Dict
 class AnalysisService:
     """Service for generating natural language insights using OpenAI"""
 
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
         self.client = AsyncOpenAI(api_key=api_key)
         self.model = model
 
@@ -87,6 +87,8 @@ class AnalysisService:
         invoice_trends: list = None,
         churn_details: list = None,
         new_customer_details: list = None,
+        all_subscriptions: list = None,
+        customer_summary: list = None,
         conversation_history: list = None
     ) -> str:
         """
@@ -95,11 +97,13 @@ class AnalysisService:
         Args:
             question: User's question in Norwegian
             subscription_metrics: Subscription-based metrics
-            subscription_trends: Subscription trends data
+            subscription_trends: Subscription trends data (12 months)
             invoice_metrics: Invoice-based metrics
-            invoice_trends: Invoice trends data
+            invoice_trends: Invoice trends data (12 months)
             churn_details: Detailed churn information with reasons
-            new_customer_details: New customers details
+            new_customer_details: New customers details (12 months)
+            all_subscriptions: Complete list of all active subscriptions
+            customer_summary: Aggregated customer data grouped by company
             conversation_history: Previous Q&A pairs for context
 
         Returns:
@@ -135,11 +139,11 @@ class AnalysisService:
             context += f"- Kunder med fakturaer: {invoice_metrics.get('total_customers', 0)}\n"
             context += f"- Aktive fakturaer: {invoice_metrics.get('active_invoices', 0)}\n\n"
 
-        # Subscription trends (siste 4 måneder, nyeste først)
+        # Subscription trends (siste 12 måneder, nyeste først)
         if subscription_trends and len(subscription_trends) > 0:
-            context += "## Subscription Trender (siste 4 måneder)\n"
+            context += "## Subscription Trender (siste 12 måneder)\n"
             # Reverser for å få nyeste først
-            recent_trends = list(reversed(subscription_trends))[:4]
+            recent_trends = list(reversed(subscription_trends))[:12]
             for i, trend in enumerate(recent_trends):
                 context += f"**{trend.get('month_name')}:** "
                 context += f"MRR {trend.get('mrr', 0):,.0f} kr"
@@ -153,11 +157,11 @@ class AnalysisService:
                 context += f"\n  - Churned kunder: {trend.get('churned_customers', 0)} stk\n"
             context += "\n"
 
-        # Invoice trends (kun siste 2 måneder, nyeste først)
+        # Invoice trends (siste 12 måneder, nyeste først)
         if invoice_trends and len(invoice_trends) > 0:
-            context += "## Faktura Trender\n"
-            # Reverser for å få nyeste først (invoice_trends er allerede sortert desc i app.py)
-            recent_invoice_trends = invoice_trends[:2]  # Allerede sortert desc
+            context += "## Faktura Trender (siste 12 måneder)\n"
+            # invoice_trends er allerede sortert desc i app.py
+            recent_invoice_trends = invoice_trends[:12]  # Allerede sortert desc
             for i, trend in enumerate(recent_invoice_trends):
                 context += f"**{trend.get('month_name')}:** "
                 context += f"MRR {trend.get('mrr', 0):,.0f} kr"
@@ -209,14 +213,72 @@ class AnalysisService:
                     context += f"  ... og {len(month_churns) - 20} flere\n"
                 context += "\n"
 
-        # New customer details
+        # New customer details (siste 12 måneder)
         if new_customer_details and len(new_customer_details) > 0:
-            context += "## Nye Kunder (siste 30d)\n"
-            for customer in new_customer_details[:3]:
+            context += f"## Nye Kunder (siste 12 måneder - {len(new_customer_details)} totalt)\n"
+            # Vis bare de siste 20 for å ikke overbelaste context
+            for customer in new_customer_details[:20]:
                 context += f"- **{customer.get('customer_name')}**: {customer.get('amount', 0):,.0f} kr"
                 if customer.get('plan_name'):
                     context += f" ({customer.get('plan_name')})"
+                if customer.get('activated_at'):
+                    context += f" - Aktivert: {customer.get('activated_at')}"
                 context += "\n"
+            if len(new_customer_details) > 20:
+                context += f"  ... og {len(new_customer_details) - 20} flere\n"
+            context += "\n"
+
+        # Customer summary (sorted by MRR, top customers)
+        if customer_summary and len(customer_summary) > 0:
+            context += f"## Kundeoversikt (Alle kunder sortert etter MRR)\n"
+            context += f"**Totalt {len(customer_summary)} kunder i databasen.**\n\n"
+            context += "**Top 30 kunder etter MRR:**\n"
+            for i, customer in enumerate(customer_summary[:30], 1):
+                context += f"{i}. **{customer.get('customer_name')}**: {customer.get('total_mrr', 0):,.0f} kr/mnd"
+                context += f" ({customer.get('subscription_count', 0)} subscriptions"
+                if customer.get('vessels'):
+                    vessel_count = len(customer.get('vessels', []))
+                    context += f", {vessel_count} fartøy"
+                context += ")\n"
+                # Vis planer
+                if customer.get('plans'):
+                    plans = customer.get('plans', [])
+                    context += f"   Planer: {', '.join(plans[:3])}"
+                    if len(plans) > 3:
+                        context += f" (+{len(plans)-3} flere)"
+                    context += "\n"
+            if len(customer_summary) > 30:
+                remaining_mrr = sum(c.get('total_mrr', 0) for c in customer_summary[30:])
+                context += f"\n... og {len(customer_summary) - 30} flere kunder (totalt {remaining_mrr:,.0f} kr MRR)\n"
+            context += "\n"
+
+        # All subscriptions overview
+        if all_subscriptions and len(all_subscriptions) > 0:
+            context += f"## Fullstendig Subscription Database\n"
+            context += f"**Totalt {len(all_subscriptions)} aktive subscriptions i databasen.**\n"
+            context += "**VIKTIG:** Du har tilgang til ALLE subscriptions med fullstendige detaljer (kunde, plan, beløp, status, fartøy, datoer).\n\n"
+
+            # Grupper subscriptions etter status
+            live_count = sum(1 for s in all_subscriptions if s.get('status') == 'live')
+            non_renewing_count = sum(1 for s in all_subscriptions if s.get('status') == 'non_renewing')
+            context += f"**Status fordeling:**\n"
+            context += f"- Live: {live_count} subscriptions\n"
+            context += f"- Non-renewing: {non_renewing_count} subscriptions\n\n"
+
+            # Grupper etter plan type
+            from collections import defaultdict
+            plans_summary = defaultdict(lambda: {'count': 0, 'total_mrr': 0})
+            for sub in all_subscriptions:
+                plan_name = sub.get('plan_name', 'Unknown')
+                interval_months = sub.get('interval', 1) if sub.get('interval_unit') == 'months' else (12 if sub.get('interval_unit') == 'years' else 1)
+                mrr = (sub.get('amount', 0) / 1.25) / interval_months if sub.get('amount') else 0
+                plans_summary[plan_name]['count'] += 1
+                plans_summary[plan_name]['total_mrr'] += mrr
+
+            context += "**Fordeling per plan:**\n"
+            sorted_plans = sorted(plans_summary.items(), key=lambda x: x[1]['total_mrr'], reverse=True)[:10]
+            for plan_name, data in sorted_plans:
+                context += f"- **{plan_name}**: {data['count']} subscriptions, {data['total_mrr']:,.0f} kr MRR\n"
             context += "\n"
 
         # Build messages with conversation history
@@ -224,7 +286,13 @@ class AnalysisService:
             {
                 "role": "system",
                 "content": (
-                    "Du er Niko, en regnskapsspesialist som svarer på alle spørsmål om dataene i systemet.\n\n"
+                    "Du er Niko, en avansert regnskapsspesialist og dataanalytiker som har full tilgang til HELE databasen.\n\n"
+                    "**FULL DATABASETILGANG:**\n"
+                    "- Du har tilgang til 12 måneder med historiske data\n"
+                    "- Du kan se ALLE aktive subscriptions med fullstendige detaljer\n"
+                    "- Du har oversikt over ALLE kunder sortert etter MRR\n"
+                    "- Du kan utføre komplekse analyser på tvers av kunder, planer, perioder og segmenter\n"
+                    "- Du kan analysere trender, sammenligne perioder, identifisere mønstre og anomalier\n\n"
                     "**VIKTIG - TOLKNING AV MÅNEDSSPØRSMÅL:**\n"
                     "- Hvis brukeren spør om 'august', 'i august', 'nedgang i august' → Se på endringen TIL august (juli→august)\n"
                     "- Hvis brukeren spør om 'siste måned' → Se på nyeste måned i dataene\n"
@@ -238,11 +306,16 @@ class AnalysisService:
                     "  * MRR-beløp per kunde\n"
                     "- Hvis det er mange churned kunder, fokuser på de største (høyest MRR) og grupper årsaker\n"
                     "- ALDRI si at 'detaljer ikke er tilgjengelige' - du har detaljert churn-informasjon!\n\n"
+                    "**VIKTIG - BRUK AV KUNDEOVERSIKT:**\n"
+                    "- Du har full tilgang til alle kunder med total MRR, antall subscriptions, fartøy og planer\n"
+                    "- Når du svarer om kunder, inkluder faktiske kundenavn, MRR-beløp og relevante detaljer\n"
+                    "- Du kan sammenligne kunder, identifisere top-kunder, analysere kundesegmenter\n\n"
                     "**SVARSTIL:**\n"
                     "- Svar kort, presist og utfyllende\n"
                     "- Inkluder detaljert informasjon om kunder og endringer\n"
                     "- Start alltid med hvilken måned/periode det gjelder\n"
                     "- Gi konkrete tall, kundenavn, beløp og årsaker\n"
+                    "- Utfør komplekse analyser når det etterspørres\n"
                     "- INGEN introduksjoner eller konklusjoner\n"
                     "- INGEN forretningsråd eller anbefalinger\n\n"
                     "**EKSEMPEL 1:**\n"
@@ -288,7 +361,7 @@ class AnalysisService:
             model=self.model,
             messages=messages,
             temperature=0.3,
-            max_tokens=400,  # Nok rom for detaljer med kundenavn
+            max_tokens=1000,  # Økt kapasitet for komplekse analyser med full database
         )
 
         return response.choices[0].message.content.strip()
