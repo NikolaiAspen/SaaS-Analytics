@@ -519,6 +519,92 @@ async def guide_page(request: Request):
     return templates.TemplateResponse("guide.html", {"request": request})
 
 
+@app.get("/api/changelog", response_class=HTMLResponse)
+async def changelog_page(request: Request):
+    """
+    Changelog page - shows release notes and version history
+    """
+    try:
+        import os
+
+        # Read CHANGELOG.md file
+        changelog_path = os.path.join(os.path.dirname(__file__), "CHANGELOG.md")
+
+        if not os.path.exists(changelog_path):
+            changelog_html = "<p>Ingen endringslogg funnet.</p>"
+        else:
+            with open(changelog_path, "r", encoding="utf-8") as f:
+                changelog_md = f.read()
+
+            # Simple markdown to HTML conversion
+            changelog_html = changelog_md
+
+            # Headers
+            changelog_html = changelog_html.replace("## ", '<h2><span class="version-badge">').replace(" - ", '</span> - ')
+            changelog_html = changelog_html.replace("### ", "<h3>")
+            changelog_html = changelog_html.replace("#### ", "<h4>")
+
+            # Bold
+            import re
+            changelog_html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', changelog_html)
+
+            # Lists
+            lines = changelog_html.split('\n')
+            html_lines = []
+            in_list = False
+
+            for line in lines:
+                if line.startswith('- '):
+                    if not in_list:
+                        html_lines.append('<ul>')
+                        in_list = True
+                    html_lines.append(f'<li>{line[2:]}</li>')
+                else:
+                    if in_list:
+                        html_lines.append('</ul>')
+                        in_list = False
+
+                    # Close h2/h3/h4 tags
+                    if line.startswith('<h2>'):
+                        line = line + '</h2>'
+                    elif line.startswith('<h3>'):
+                        line = line + '</h3>'
+                    elif line.startswith('<h4>'):
+                        line = line + '</h4>'
+
+                    html_lines.append(line)
+
+            if in_list:
+                html_lines.append('</ul>')
+
+            changelog_html = '\n'.join(html_lines)
+
+            # Horizontal rules
+            changelog_html = changelog_html.replace('---', '<hr>')
+
+            # Line breaks
+            changelog_html = changelog_html.replace('\n\n', '</p><p>')
+            changelog_html = f'<p>{changelog_html}</p>'
+
+            # Clean up empty paragraphs
+            changelog_html = re.sub(r'<p>\s*</p>', '', changelog_html)
+            changelog_html = re.sub(r'<p>(<h[234])', r'\1', changelog_html)
+            changelog_html = re.sub(r'(</h[234]>)</p>', r'\1', changelog_html)
+            changelog_html = re.sub(r'<p>(<hr>)</p>', r'\1', changelog_html)
+            changelog_html = re.sub(r'<p>(<ul>)', r'\1', changelog_html)
+            changelog_html = re.sub(r'(</ul>)</p>', r'\1', changelog_html)
+
+        return templates.TemplateResponse(
+            "changelog.html",
+            {
+                "request": request,
+                "changelog_html": changelog_html,
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Changelog page failed: {str(e)}")
+
+
 @app.get("/api/debug", response_class=HTMLResponse)
 async def debug_page(request: Request, session: AsyncSession = Depends(get_session)):
     """
