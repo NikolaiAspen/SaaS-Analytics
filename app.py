@@ -1467,8 +1467,8 @@ async def ask_niko_comprehensive(
             from models.subscription import ChurnedCustomer, Subscription
             from sqlalchemy import select
 
-            # Get recent churned customers (kun 5 for korthet)
-            stmt = select(ChurnedCustomer).order_by(ChurnedCustomer.cancelled_date.desc()).limit(5)
+            # Get ALL churned customers (ingen limit - Niko trenger full oversikt)
+            stmt = select(ChurnedCustomer).order_by(ChurnedCustomer.cancelled_date.desc())
             result = await session.execute(stmt)
             churned_records = result.scalars().all()
 

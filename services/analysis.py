@@ -166,18 +166,48 @@ class AnalysisService:
                 context += f", {trend.get('customers', 0)} kunder\n"
             context += "\n"
 
-        # Churn details (kun eksempler på siste churned kunder - IKKE filtrert på måned)
+        # Churn details (ALLE churned kunder med datoer og årsaker)
         if churn_details and len(churn_details) > 0:
-            context += "## Eksempler på Churned Kunder (siste 5 totalt, IKKE per måned)\n"
-            context += "**OBS:** For total churn per måned, bruk tallene fra Subscription Trender ovenfor.\n\n"
-            for churn in churn_details[:3]:
-                context += f"- **{churn.get('customer_name')}**: {churn.get('amount', 0):,.0f} kr"
-                if churn.get('plan_name'):
-                    context += f" ({churn.get('plan_name')})"
-                if churn.get('reason'):
-                    context += f" - {churn.get('reason')}"
+            context += "## Churned Kunder (KOMPLETT OVERSIKT)\n"
+            context += "**VIKTIG:** Disse dataene inneholder ALLE churned kunder med kundenavn, beløp, datoer og churn-årsaker.\n"
+            context += f"**Totalt {len(churn_details)} churned kunder i databasen.**\n\n"
+
+            # Grupper churn etter måned for oversikt
+            from datetime import datetime
+            from collections import defaultdict
+            churn_by_month = defaultdict(list)
+
+            for churn in churn_details:
+                if churn.get('churned_at'):
+                    try:
+                        churn_date = datetime.strptime(churn.get('churned_at'), '%Y-%m-%d')
+                        month_key = churn_date.strftime('%Y-%m')
+                        churn_by_month[month_key].append(churn)
+                    except:
+                        pass
+
+            # Vis siste 12 måneder med churn-detaljer
+            sorted_months = sorted(churn_by_month.keys(), reverse=True)[:12]
+
+            for month_key in sorted_months:
+                month_churns = churn_by_month[month_key]
+                month_date = datetime.strptime(month_key, '%Y-%m')
+                month_name = month_date.strftime('%B %Y')
+                total_mrr = sum(c.get('amount', 0) for c in month_churns)
+
+                context += f"### {month_name} ({len(month_churns)} kunder, {total_mrr:,.0f} kr MRR)\n"
+
+                for churn in month_churns[:20]:  # Vis maks 20 per måned
+                    context += f"- **{churn.get('customer_name')}**: {churn.get('amount', 0):,.0f} kr"
+                    if churn.get('plan_name'):
+                        context += f" ({churn.get('plan_name')})"
+                    if churn.get('reason'):
+                        context += f" - *{churn.get('reason')}*"
+                    context += "\n"
+
+                if len(month_churns) > 20:
+                    context += f"  ... og {len(month_churns) - 20} flere\n"
                 context += "\n"
-            context += "\n"
 
         # New customer details
         if new_customer_details and len(new_customer_details) > 0:
@@ -200,10 +230,14 @@ class AnalysisService:
                     "- Hvis brukeren spør om 'siste måned' → Se på nyeste måned i dataene\n"
                     "- Alltid svar med riktig månedsperiode i formatet: **[Forrige måned]→[Aktuell måned] [År]**\n\n"
                     "**VIKTIG - BRUK AV CHURN-DATA:**\n"
-                    "- For totalt antall churned kunder per måned: Bruk 'Churned kunder' fra Subscription Trender\n"
-                    "- For total churned MRR per måned: Bruk 'Churned MRR' fra Subscription Trender\n"
-                    "- Eksempelkundene under 'Eksempler på Churned Kunder' er KUN illustrasjoner, IKKE komplette tall per måned\n"
-                    "- Når du oppgir antall churned kunder, bruk ALLTID tallet fra Subscription Trender\n\n"
+                    "- Du har tilgang til detaljerte churn-data med kundenavn, beløp, datoer og årsaker!\n"
+                    "- 'Churned Kunder' seksjonen viser faktiske kunder gruppert per måned med churn-årsaker\n"
+                    "- Når du svarer om churn, INKLUDER ALLTID:\n"
+                    "  * Spesifikke kundenavn fra den aktuelle måneden\n"
+                    "  * Churn-årsaker for de viktigste kundene\n"
+                    "  * MRR-beløp per kunde\n"
+                    "- Hvis det er mange churned kunder, fokuser på de største (høyest MRR) og grupper årsaker\n"
+                    "- ALDRI si at 'detaljer ikke er tilgjengelige' - du har detaljert churn-informasjon!\n\n"
                     "**SVARSTIL:**\n"
                     "- Svar kort, presist og utfyllende\n"
                     "- Inkluder detaljert informasjon om kunder og endringer\n"
@@ -220,6 +254,11 @@ class AnalysisService:
                     "Spørsmål: Hvorfor nedgang i august?\n\n"
                     "Svar: **Juli→August 2025**: MRR hadde en nedgang på **-9,038 kr** (-0.4%).\n\n"
                     "**Churn** (27 kunder): Tapte totalt **-12,500 kr** MRR.\n\n"
+                    "Viktigste churned kunder:\n"
+                    "- **Nordsjø Maritime AS**: 2,450 kr - *Selskapet la ned virksomheten*\n"
+                    "- **Vestlandet Fisk AS**: 1,880 kr - *Byttet til konkurrent*\n"
+                    "- **Kystfart AS**: 1,650 kr - *For dyrt*\n"
+                    "- + 24 andre kunder\n\n"
                     "**Nye kunder** (5 stk): Bidro **+3,462 kr** ny MRR.\n\n"
                     "Netto effekt: -9,038 kr pga høyere churn enn ny MRR.\n\n"
                     "**ALLTID INKLUDER:**\n"
