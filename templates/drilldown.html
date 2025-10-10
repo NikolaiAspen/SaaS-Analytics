@@ -187,6 +187,30 @@
             top: 0;
             background: var(--panel);
             z-index: 10;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        th:hover {
+            background: rgba(18, 25, 51, 0.95);
+            color: var(--ink);
+        }
+
+        th.sortable::after {
+            content: ' ↕';
+            opacity: 0.3;
+        }
+
+        th.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+            color: var(--good);
+        }
+
+        th.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
+            color: var(--good);
         }
 
         td {
@@ -449,7 +473,81 @@
                     link.classList.add('active');
                 }
             });
+
+            // Initialize sortable table headers
+            initSortableTable();
         });
+
+        function initSortableTable() {
+            const table = document.getElementById('dataTable');
+            if (!table) return;
+
+            const headers = table.querySelectorAll('th');
+
+            headers.forEach((header, index) => {
+                header.classList.add('sortable');
+                header.setAttribute('data-column', index);
+                header.addEventListener('click', () => sortTable(index));
+            });
+        }
+
+        function sortTable(columnIndex) {
+            const table = document.getElementById('dataTable');
+            const tbody = table.querySelector('tbody');
+            const headers = table.querySelectorAll('th');
+            const rows = Array.from(tbody.querySelectorAll('tr:not(.sub-row)'));
+
+            // Determine sort direction
+            const header = headers[columnIndex];
+            const isAscending = !header.classList.contains('sort-asc');
+
+            // Remove sort classes from all headers
+            headers.forEach(h => {
+                h.classList.remove('sort-asc', 'sort-desc');
+            });
+
+            // Add appropriate sort class
+            header.classList.add(isAscending ? 'sort-asc' : 'sort-desc');
+
+            // Sort rows
+            rows.sort((a, b) => {
+                const aCell = a.cells[columnIndex];
+                const bCell = b.cells[columnIndex];
+
+                // Get text content
+                let aValue = aCell.textContent.trim();
+                let bValue = bCell.textContent.trim();
+
+                // Handle MRR column (remove "kr" and commas, handle negative values)
+                if (aValue.includes('kr') && bValue.includes('kr')) {
+                    aValue = parseFloat(aValue.replace(/[^\d,-]/g, '').replace(',', '')) || 0;
+                    bValue = parseFloat(bValue.replace(/[^\d,-]/g, '').replace(',', '')) || 0;
+                }
+                // Handle date columns (format: DD.MM.YYYY)
+                else if (aValue.match(/\d{2}\.\d{2}\.\d{4}/) && bValue.match(/\d{2}\.\d{2}\.\d{4}/)) {
+                    // Convert DD.MM.YYYY to sortable format
+                    aValue = aValue === 'N/A' || aValue === '' ? '01.01.1900' : aValue;
+                    bValue = bValue === 'N/A' || bValue === '' ? '01.01.1900' : bValue;
+
+                    const aParts = aValue.split('.');
+                    const bParts = bValue.split('.');
+                    aValue = aParts[2] + aParts[1] + aParts[0]; // YYYYMMDD
+                    bValue = bParts[2] + bParts[1] + bParts[0]; // YYYYMMDD
+                }
+
+                // Compare values
+                if (typeof aValue === 'number' && typeof bValue === 'number') {
+                    return isAscending ? aValue - bValue : bValue - aValue;
+                } else {
+                    return isAscending
+                        ? aValue.localeCompare(bValue, 'no')
+                        : bValue.localeCompare(aValue, 'no');
+                }
+            });
+
+            // Re-append rows in sorted order
+            rows.forEach(row => tbody.appendChild(row));
+        }
 
         function applyFilter(filterValue) {
             const url = new URL(window.location);
