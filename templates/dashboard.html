@@ -388,21 +388,46 @@
         <div id="syncStatus" style="display: none; margin-top: 12px; padding: 12px; border-radius: 10px; font-size: 14px;"></div>
 
         <div class="card">
-            <h2>💬 Spør Niko om tallene</h2>
+            <h2>💬 Spør Niko om Tallene</h2>
             <p style="color: var(--muted); margin-bottom: 16px; font-size: 14px;">
-                Still spørsmål om metrics og trender. For eksempel: "Hvorfor økte MRR i forrige måned?" eller "Hva er den største bekymringen?"
+                Niko kan svare på alt om subscriptions, fakturaer, MRR, churn og kunder. Still direkte spørsmål eller velg et quick action nedenfor.
             </p>
+
+            <!-- Quick Actions -->
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;">
+                <button onclick="quickAsk('Hva er den største bekymringen akkurat nå?')" style="padding: 8px 14px; font-size: 13px; background: rgba(159, 177, 255, 0.1); border-color: rgba(159, 177, 255, 0.2);">
+                    ⚠️ Største bekymring?
+                </button>
+                <button onclick="quickAsk('Hvorfor endret MRR seg i siste måned?')" style="padding: 8px 14px; font-size: 13px; background: rgba(159, 177, 255, 0.1); border-color: rgba(159, 177, 255, 0.2);">
+                    📊 Hvorfor endret MRR seg?
+                </button>
+                <button onclick="quickAsk('Hvilke kunder har churnet og hvorfor?')" style="padding: 8px 14px; font-size: 13px; background: rgba(159, 177, 255, 0.1); border-color: rgba(159, 177, 255, 0.2);">
+                    📉 Churn-analyse
+                </button>
+                <button onclick="quickAsk('Sammenlign subscription MRR vs faktura MRR')" style="padding: 8px 14px; font-size: 13px; background: rgba(159, 177, 255, 0.1); border-color: rgba(159, 177, 255, 0.2);">
+                    🔍 Subscription vs Faktura
+                </button>
+                <button onclick="quickAsk('Hva er de viktigste trendene siste 6 måneder?')" style="padding: 8px 14px; font-size: 13px; background: rgba(159, 177, 255, 0.1); border-color: rgba(159, 177, 255, 0.2);">
+                    📈 Trender siste 6 mnd
+                </button>
+            </div>
+
+            <!-- Question Input -->
             <div style="display: flex; gap: 12px; margin-bottom: 16px;">
                 <input
                     type="text"
                     id="aiQuestion"
                     placeholder="Still et spørsmål..."
                     style="flex: 1; padding: 12px 16px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); background: #0f1530; color: var(--ink); font-size: 14px;"
-                    onkeypress="if(event.key === 'Enter') askAI()"
+                    onkeypress="if(event.key === 'Enter') askNiko()"
                 />
-                <button onclick="askAI()" style="padding: 12px 24px;">Spør Niko</button>
+                <button onclick="askNiko()" style="padding: 12px 24px; background: var(--good); border: none; color: #0b1020;">Spør Niko</button>
             </div>
-            <div id="aiAnswer" style="display: none; background: rgba(15, 21, 48, 0.6); padding: 16px; border-radius: 10px; border-left: 3px solid var(--good); white-space: pre-line;"></div>
+
+            <!-- Chat History -->
+            <div id="chatHistory" style="display: none;">
+                <div style="max-height: 600px; overflow-y: auto; display: flex; flex-direction: column-reverse; gap: 16px;"></div>
+            </div>
         </div>
 
         <div class="card">
@@ -489,45 +514,142 @@
             }
         }
 
-        async function askAI() {
+        // Chat history stored in memory
+        let chatHistory = [];
+
+        // Simple markdown to HTML converter
+        function renderMarkdown(text) {
+            // Escape HTML first
+            const escapeHtml = (str) => {
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            };
+
+            // Don't double-escape
+            let result = text;
+
+            // Headings (do before escaping)
+            result = result.replace(/^#### (.+)$/gm, '<h5 style="color: var(--ink); margin-top: 12px; margin-bottom: 6px; font-size: 14px; font-weight: 600;">$1</h5>');
+            result = result.replace(/^### (.+)$/gm, '<h4 style="color: var(--ink); margin-top: 14px; margin-bottom: 8px; font-size: 15px; font-weight: 600;">$1</h4>');
+            result = result.replace(/^## (.+)$/gm, '<h3 style="color: var(--good); margin-top: 16px; margin-bottom: 10px; font-size: 16px; font-weight: 600;">$1</h3>');
+
+            // Bold
+            result = result.replace(/\*\*([^*]+)\*\*/g, '<strong style="color: var(--ink); font-weight: 600;">$1</strong>');
+
+            // Bullet points - wrap in ul
+            result = result.replace(/^- (.+)$/gm, '<li style="margin-left: 20px; margin-bottom: 6px; line-height: 1.5;">$1</li>');
+
+            // Wrap consecutive <li> in <ul>
+            result = result.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, '<ul style="margin: 8px 0; padding-left: 20px;">$&</ul>');
+
+            // Line breaks (but not inside HTML tags)
+            result = result.replace(/\n(?![<])/g, '<br>');
+
+            return result;
+        }
+
+        function quickAsk(question) {
             const input = document.getElementById('aiQuestion');
-            const answerDiv = document.getElementById('aiAnswer');
+            input.value = question;
+            askNiko();
+        }
+
+        async function askNiko() {
+            const input = document.getElementById('aiQuestion');
+            const historyContainer = document.getElementById('chatHistory');
             const question = input.value.trim();
 
             if (!question) {
                 return;
             }
 
-            answerDiv.style.display = 'block';
-            answerDiv.innerHTML = '⏳ Spør Niko...';
+            // Show chat history container
+            historyContainer.style.display = 'block';
+            const historyDiv = historyContainer.querySelector('div');
+
+            // Add loading message
+            const loadingId = 'loading-' + Date.now();
+            const loadingHtml = `
+                <div id="${loadingId}" style="display: flex; flex-direction: column; gap: 12px;">
+                    <div style="padding: 14px; background: rgba(159, 177, 255, 0.08); border-radius: 10px; border-left: 3px solid var(--muted);">
+                        <strong style="color: var(--muted); font-size: 12px; text-transform: uppercase;">DU</strong>
+                        <p style="color: var(--ink); margin-top: 6px; font-size: 14px; line-height: 1.6;">${question}</p>
+                    </div>
+                    <div style="padding: 14px; background: rgba(61, 220, 151, 0.08); border-radius: 10px; border-left: 3px solid var(--good);">
+                        <strong style="color: var(--good); font-size: 12px; text-transform: uppercase;">NIKO</strong>
+                        <div style="color: var(--ink); margin-top: 12px; line-height: 1.7;">
+                            ⏳ Analyserer data...
+                        </div>
+                    </div>
+                </div>
+            `;
+            historyDiv.insertAdjacentHTML('afterbegin', loadingHtml);
+
+            // Clear input
+            input.value = '';
 
             try {
-                const response = await fetch('/api/ask-ai', {
+                const response = await fetch('/api/ask-niko', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ question: question })
+                    body: JSON.stringify({
+                        question: question,
+                        conversation_history: chatHistory.slice(-3)  // Send last 3 exchanges for context
+                    })
                 });
 
                 const data = await response.json();
 
+                // Remove loading message
+                document.getElementById(loadingId).remove();
+
                 if (response.ok) {
-                    answerDiv.innerHTML = `
-                        <div style="padding: 16px; background: rgba(159, 177, 255, 0.05); border-radius: 8px; margin-bottom: 12px;">
-                            <strong style="color: var(--muted); font-size: 13px;">SPØRSMÅL</strong>
-                            <p style="color: var(--ink); margin-top: 6px; font-size: 15px;">${question}</p>
-                        </div>
-                        <div style="padding: 16px; background: rgba(61, 220, 151, 0.05); border-radius: 8px;">
-                            <strong style="color: var(--good); font-size: 13px;">NIKO-ANALYSE</strong>
-                            <div style="color: var(--ink); margin-top: 12px; line-height: 1.7; white-space: pre-line;">${data.answer}</div>
+                    // Add to chat history
+                    chatHistory.push({
+                        question: question,
+                        answer: data.answer
+                    });
+
+                    // Render the Q&A
+                    const qaHtml = `
+                        <div style="display: flex; flex-direction: column; gap: 12px;">
+                            <div style="padding: 14px; background: rgba(159, 177, 255, 0.08); border-radius: 10px; border-left: 3px solid var(--muted);">
+                                <strong style="color: var(--muted); font-size: 12px; text-transform: uppercase;">DU</strong>
+                                <p style="color: var(--ink); margin-top: 6px; font-size: 14px; line-height: 1.6;">${question}</p>
+                            </div>
+                            <div style="padding: 14px; background: rgba(61, 220, 151, 0.08); border-radius: 10px; border-left: 3px solid var(--good);">
+                                <strong style="color: var(--good); font-size: 12px; text-transform: uppercase;">NIKO</strong>
+                                <div style="color: var(--ink); margin-top: 12px; line-height: 1.7; font-size: 14px;">
+                                    ${renderMarkdown(data.answer)}
+                                </div>
+                            </div>
                         </div>
                     `;
+                    historyDiv.insertAdjacentHTML('afterbegin', qaHtml);
                 } else {
-                    answerDiv.innerHTML = `<div style="padding: 12px; background: rgba(255, 107, 107, 0.1); border-radius: 8px; color: var(--bad);">❌ <strong>Feil:</strong> ${data.detail || 'Ukjent feil'}</div>`;
+                    const errorHtml = `
+                        <div style="padding: 14px; background: rgba(255, 107, 107, 0.1); border-radius: 10px; border-left: 3px solid var(--bad);">
+                            <strong style="color: var(--bad);">❌ FEIL</strong>
+                            <p style="color: var(--ink); margin-top: 6px;">${data.detail || 'Ukjent feil'}</p>
+                        </div>
+                    `;
+                    historyDiv.insertAdjacentHTML('afterbegin', errorHtml);
                 }
             } catch (error) {
-                answerDiv.innerHTML = `❌ Feil: ${error.message}`;
+                // Remove loading
+                const loadingEl = document.getElementById(loadingId);
+                if (loadingEl) loadingEl.remove();
+
+                const errorHtml = `
+                    <div style="padding: 14px; background: rgba(255, 107, 107, 0.1); border-radius: 10px; border-left: 3px solid var(--bad);">
+                        <strong style="color: var(--bad);">❌ FEIL</strong>
+                        <p style="color: var(--ink); margin-top: 6px;">${error.message}</p>
+                    </div>
+                `;
+                historyDiv.insertAdjacentHTML('afterbegin', errorHtml);
                 console.error('Niko chat error:', error);
             }
         }

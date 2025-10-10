@@ -78,6 +78,182 @@ class AnalysisService:
 
         return response.choices[0].message.content.strip()
 
+    async def ask_comprehensive(
+        self,
+        question: str,
+        subscription_metrics: Dict = None,
+        subscription_trends: list = None,
+        invoice_metrics: Dict = None,
+        invoice_trends: list = None,
+        churn_details: list = None,
+        new_customer_details: list = None,
+        conversation_history: list = None
+    ) -> str:
+        """
+        Answer comprehensive questions with full context from all data sources
+
+        Args:
+            question: User's question in Norwegian
+            subscription_metrics: Subscription-based metrics
+            subscription_trends: Subscription trends data
+            invoice_metrics: Invoice-based metrics
+            invoice_trends: Invoice trends data
+            churn_details: Detailed churn information with reasons
+            new_customer_details: New customers details
+            conversation_history: Previous Q&A pairs for context
+
+        Returns:
+            Detailed answer with markdown formatting
+        """
+        from datetime import datetime
+
+        # Build comprehensive context
+        today = datetime.utcnow()
+        current_month = today.strftime("%B %Y")  # e.g., "Oktober 2025"
+
+        context = f"# TILGJENGELIG DATA\n\n"
+        context += f"**DAGENS DATO: {today.strftime('%d.%m.%Y')} ({current_month})**\n\n"
+
+        # Subscription data
+        if subscription_metrics:
+            context += "## Subscription-baserte Tall (fra Zoho Subscriptions)\n"
+            context += f"- MRR: {subscription_metrics.get('mrr', 0):,.0f} NOK\n"
+            context += f"- ARR: {subscription_metrics.get('arr', 0):,.0f} NOK\n"
+            context += f"- ARPU: {subscription_metrics.get('arpu', 0):,.0f} NOK\n"
+            context += f"- Aktive kunder: {subscription_metrics.get('total_customers', 0)}\n"
+            context += f"- Aktive subscriptions: {subscription_metrics.get('active_subscriptions', 0)}\n"
+            context += f"- Customer churn: {subscription_metrics.get('customer_churn_rate', 0):.1f}%\n"
+            context += f"- Revenue churn: {subscription_metrics.get('revenue_churn_rate', 0):.1f}%\n"
+            context += f"- Ny MRR (siste 30d): {subscription_metrics.get('new_mrr', 0):,.0f} NOK\n\n"
+
+        # Invoice data
+        if invoice_metrics:
+            context += "## Faktura-baserte Tall (fra Zoho Billing)\n"
+            context += f"- MRR: {invoice_metrics.get('mrr', 0):,.0f} NOK\n"
+            context += f"- ARR: {invoice_metrics.get('arr', 0):,.0f} NOK\n"
+            context += f"- ARPU: {invoice_metrics.get('arpu', 0):,.0f} NOK\n"
+            context += f"- Kunder med fakturaer: {invoice_metrics.get('total_customers', 0)}\n"
+            context += f"- Aktive fakturaer: {invoice_metrics.get('active_invoices', 0)}\n\n"
+
+        # Subscription trends (siste 4 måneder, nyeste først)
+        if subscription_trends and len(subscription_trends) > 0:
+            context += "## Subscription Trender (siste 4 måneder)\n"
+            # Reverser for å få nyeste først
+            recent_trends = list(reversed(subscription_trends))[:4]
+            for i, trend in enumerate(recent_trends):
+                context += f"**{trend.get('month_name')}:** "
+                context += f"MRR {trend.get('mrr', 0):,.0f} kr"
+                if trend.get('mrr_change'):
+                    context += f" ({trend.get('mrr_change', 0):+,.0f} kr, {trend.get('mrr_change_pct', 0):+.1f}%)"
+                context += f", {trend.get('customers', 0)} kunder"
+                if trend.get('customer_change'):
+                    context += f" ({trend.get('customer_change', 0):+d})"
+                context += f"\n  - Ny MRR: {trend.get('new_mrr', 0):,.0f} kr"
+                context += f"\n  - Churned MRR: {trend.get('churned_mrr', 0):,.0f} kr"
+                context += f"\n  - Churned kunder: {trend.get('churned_customers', 0)} stk\n"
+            context += "\n"
+
+        # Invoice trends (kun siste 2 måneder, nyeste først)
+        if invoice_trends and len(invoice_trends) > 0:
+            context += "## Faktura Trender\n"
+            # Reverser for å få nyeste først (invoice_trends er allerede sortert desc i app.py)
+            recent_invoice_trends = invoice_trends[:2]  # Allerede sortert desc
+            for i, trend in enumerate(recent_invoice_trends):
+                context += f"**{trend.get('month_name')}:** "
+                context += f"MRR {trend.get('mrr', 0):,.0f} kr"
+                if trend.get('mrr_change'):
+                    context += f" ({trend.get('mrr_change', 0):+,.0f} kr, {trend.get('mrr_change_pct', 0):+.1f}%)"
+                context += f", {trend.get('customers', 0)} kunder\n"
+            context += "\n"
+
+        # Churn details (kun eksempler på siste churned kunder - IKKE filtrert på måned)
+        if churn_details and len(churn_details) > 0:
+            context += "## Eksempler på Churned Kunder (siste 5 totalt, IKKE per måned)\n"
+            context += "**OBS:** For total churn per måned, bruk tallene fra Subscription Trender ovenfor.\n\n"
+            for churn in churn_details[:3]:
+                context += f"- **{churn.get('customer_name')}**: {churn.get('amount', 0):,.0f} kr"
+                if churn.get('plan_name'):
+                    context += f" ({churn.get('plan_name')})"
+                if churn.get('reason'):
+                    context += f" - {churn.get('reason')}"
+                context += "\n"
+            context += "\n"
+
+        # New customer details
+        if new_customer_details and len(new_customer_details) > 0:
+            context += "## Nye Kunder (siste 30d)\n"
+            for customer in new_customer_details[:3]:
+                context += f"- **{customer.get('customer_name')}**: {customer.get('amount', 0):,.0f} kr"
+                if customer.get('plan_name'):
+                    context += f" ({customer.get('plan_name')})"
+                context += "\n"
+            context += "\n"
+
+        # Build messages with conversation history
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Du er Niko, en regnskapsspesialist som svarer på alle spørsmål om dataene i systemet.\n\n"
+                    "**VIKTIG - TOLKNING AV MÅNEDSSPØRSMÅL:**\n"
+                    "- Hvis brukeren spør om 'august', 'i august', 'nedgang i august' → Se på endringen TIL august (juli→august)\n"
+                    "- Hvis brukeren spør om 'siste måned' → Se på nyeste måned i dataene\n"
+                    "- Alltid svar med riktig månedsperiode i formatet: **[Forrige måned]→[Aktuell måned] [År]**\n\n"
+                    "**VIKTIG - BRUK AV CHURN-DATA:**\n"
+                    "- For totalt antall churned kunder per måned: Bruk 'Churned kunder' fra Subscription Trender\n"
+                    "- For total churned MRR per måned: Bruk 'Churned MRR' fra Subscription Trender\n"
+                    "- Eksempelkundene under 'Eksempler på Churned Kunder' er KUN illustrasjoner, IKKE komplette tall per måned\n"
+                    "- Når du oppgir antall churned kunder, bruk ALLTID tallet fra Subscription Trender\n\n"
+                    "**SVARSTIL:**\n"
+                    "- Svar kort, presist og utfyllende\n"
+                    "- Inkluder detaljert informasjon om kunder og endringer\n"
+                    "- Start alltid med hvilken måned/periode det gjelder\n"
+                    "- Gi konkrete tall, kundenavn, beløp og årsaker\n"
+                    "- INGEN introduksjoner eller konklusjoner\n"
+                    "- INGEN forretningsråd eller anbefalinger\n\n"
+                    "**EKSEMPEL 1:**\n"
+                    "Spørsmål: Hvorfor endret MRR seg i siste måned?\n\n"
+                    "Svar: **September→Oktober 2025**: MRR økte **+3,255 kr** (+0.2%).\n\n"
+                    "**Nye kunder** (22 stk): Bidro **+4,200 kr** ny MRR.\n\n"
+                    "**Churn** (8 stk): Tap **-2,080 kr** MRR.\n\n"
+                    "**EKSEMPEL 2:**\n"
+                    "Spørsmål: Hvorfor nedgang i august?\n\n"
+                    "Svar: **Juli→August 2025**: MRR hadde en nedgang på **-9,038 kr** (-0.4%).\n\n"
+                    "**Churn** (27 kunder): Tapte totalt **-12,500 kr** MRR.\n\n"
+                    "**Nye kunder** (5 stk): Bidro **+3,462 kr** ny MRR.\n\n"
+                    "Netto effekt: -9,038 kr pga høyere churn enn ny MRR.\n\n"
+                    "**ALLTID INKLUDER:**\n"
+                    "- Måned/periode\n"
+                    "- Kundenavn (faktiske navn fra data)\n"
+                    "- Beløp i NOK\n"
+                    "- Plantype/abonnement hvis tilgjengelig\n"
+                    "- Årsak/grunn hvis tilgjengelig\n"
+                    "- Totalsummer og antall"
+                )
+            }
+        ]
+
+        # Add conversation history for context
+        if conversation_history:
+            for item in conversation_history[-3:]:  # Last 3 exchanges
+                messages.append({"role": "user", "content": item.get("question", "")})
+                messages.append({"role": "assistant", "content": item.get("answer", "")})
+
+        # Add current question with full context
+        messages.append({
+            "role": "user",
+            "content": f"{context}\n---\n\n**SPØRSMÅL:** {question}\n\nAnalyser dataene ovenfor og gi et presist, innsiktsfullt svar."
+        })
+
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=400,  # Nok rom for detaljer med kundenavn
+        )
+
+        return response.choices[0].message.content.strip()
+
     def _build_prompt(self, metrics: Dict, trends: list = None) -> str:
         """
         Build the prompt for OpenAI based on metrics

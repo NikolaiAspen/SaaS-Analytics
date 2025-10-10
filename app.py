@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.requests import Request
@@ -1390,6 +1390,151 @@ Svar med konkrete innsikter om trender og årsaker til endringer basert på data
         raise HTTPException(status_code=500, detail=f"Failed to analyze trends: {str(e)}")
 
 
+class ComprehensiveQuestionRequest(BaseModel):
+    question: str
+    conversation_history: list = []
+
+
+@app.post("/api/ask-niko")
+async def ask_niko_comprehensive(
+    request: ComprehensiveQuestionRequest,
+    session: AsyncSession = Depends(get_session),
+    analysis_service: AnalysisService = Depends(get_analysis_service),
+):
+    """
+    Ask Niko anything - comprehensive endpoint that combines all data sources
+    """
+    try:
+        calculator = MetricsCalculator(session)
+
+        # Get subscription metrics and trends (4 måneder for historisk kontekst)
+        subscription_metrics = await calculator.get_metrics_summary()
+        subscription_trends = await calculator.get_monthly_trends_from_snapshots(months=4)
+
+        # Get invoice metrics and trends if available
+        invoice_metrics = None
+        invoice_trends = None
+        try:
+            from services.invoice import InvoiceService
+            invoice_service = InvoiceService(session)
+
+            # Get latest invoice snapshot
+            from models.invoice import InvoiceMRRSnapshot
+            from sqlalchemy import select
+            stmt = select(InvoiceMRRSnapshot).order_by(InvoiceMRRSnapshot.month.desc()).limit(1)
+            result = await session.execute(stmt)
+            latest_invoice_snapshot = result.scalar_one_or_none()
+
+            if latest_invoice_snapshot:
+                invoice_metrics = {
+                    'mrr': latest_invoice_snapshot.mrr,
+                    'arr': latest_invoice_snapshot.arr,
+                    'arpu': latest_invoice_snapshot.arpu,
+                    'total_customers': latest_invoice_snapshot.total_customers,
+                    'active_invoices': latest_invoice_snapshot.active_invoices,
+                }
+
+                # Get invoice trends (kun 3 måneder)
+                stmt = select(InvoiceMRRSnapshot).order_by(InvoiceMRRSnapshot.month.desc()).limit(3)
+                result = await session.execute(stmt)
+                snapshots = result.scalars().all()
+
+                invoice_trends = []
+                for i, snapshot in enumerate(snapshots):
+                    trend = {
+                        'month': snapshot.month,
+                        'month_name': snapshot.month,
+                        'mrr': snapshot.mrr,
+                        'arr': snapshot.arr,
+                        'arpu': snapshot.arpu,
+                        'customers': snapshot.total_customers,
+                    }
+
+                    # Calculate changes
+                    if i < len(snapshots) - 1:
+                        prev = snapshots[i + 1]
+                        trend['mrr_change'] = snapshot.mrr - prev.mrr
+                        trend['mrr_change_pct'] = ((snapshot.mrr - prev.mrr) / prev.mrr * 100) if prev.mrr > 0 else 0
+                        trend['customer_change'] = snapshot.total_customers - prev.total_customers
+
+                    invoice_trends.append(trend)
+        except Exception as e:
+            print(f"Could not load invoice data: {e}")
+
+        # Get churn details with subscription info
+        churn_details = []
+        try:
+            from models.subscription import ChurnedCustomer, Subscription
+            from sqlalchemy import select
+
+            # Get recent churned customers (kun 5 for korthet)
+            stmt = select(ChurnedCustomer).order_by(ChurnedCustomer.cancelled_date.desc()).limit(5)
+            result = await session.execute(stmt)
+            churned_records = result.scalars().all()
+
+            for record in churned_records:
+                churn_details.append({
+                    'customer_name': record.customer_name,
+                    'amount': record.amount,
+                    'reason': record.cancellation_reason,
+                    'churned_at': record.cancelled_date.strftime('%Y-%m-%d') if record.cancelled_date else None,
+                    'plan_name': record.plan_name if hasattr(record, 'plan_name') else None
+                })
+        except Exception as e:
+            print(f"Could not load churn details: {e}")
+
+        # Get new customer details (siste 5 nye kunder)
+        new_customer_details = []
+        try:
+            from models.subscription import Subscription
+            from sqlalchemy import select
+            from datetime import datetime, timedelta
+
+            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            stmt = (
+                select(Subscription)
+                .where(Subscription.activated_at >= thirty_days_ago)
+                .where(Subscription.status.in_(['live', 'non_renewing']))
+                .order_by(Subscription.activated_at.desc())
+                .limit(5)
+            )
+            result = await session.execute(stmt)
+            new_subs = result.scalars().all()
+
+            for sub in new_subs:
+                new_customer_details.append({
+                    'customer_name': sub.customer_name,
+                    'amount': sub.amount,
+                    'plan_name': sub.plan_name,
+                    'created_at': sub.activated_at.strftime('%Y-%m-%d') if sub.activated_at else None
+                })
+        except Exception as e:
+            print(f"Could not load new customer details: {e}")
+
+        # Ask Niko with full context
+        answer = await analysis_service.ask_comprehensive(
+            question=request.question,
+            subscription_metrics=subscription_metrics,
+            subscription_trends=subscription_trends,
+            invoice_metrics=invoice_metrics,
+            invoice_trends=invoice_trends,
+            churn_details=churn_details,
+            new_customer_details=new_customer_details,
+            conversation_history=request.conversation_history
+        )
+
+        return {
+            "status": "success",
+            "question": request.question,
+            "answer": answer,
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to process question: {str(e)}")
+
+
 @app.post("/api/generate-historical-snapshots")
 async def generate_historical_snapshots(
     session: AsyncSession = Depends(get_session),
@@ -1645,8 +1790,8 @@ async def drilldown_customers(request: Request, session: AsyncSession = Depends(
 
         return templates.TemplateResponse("drilldown.html", {
             "request": request,
-            "title": "Kunder",
-            "subtitle": "Alle aktive kunder med deres subscriptions",
+            "title": "Selskaper",
+            "subtitle": "Alle aktive selskaper med deres subscriptions",
             "stats": stats,
             "columns": columns,
             "data": data
@@ -1882,60 +2027,90 @@ async def drilldown_arpu(request: Request, session: AsyncSession = Depends(get_s
 
 @app.get("/api/drilldown/churn", response_class=HTMLResponse)
 async def drilldown_churn(request: Request, session: AsyncSession = Depends(get_session)):
-    """Drilldown: Churned customers last 30 days"""
+    """Drilldown: Churned customers grouped by month with drilldown"""
     try:
-        from sqlalchemy import select
-        from datetime import datetime, timedelta
+        from sqlalchemy import select, func
+        from datetime import datetime
         from models.subscription import ChurnedCustomer
+        from collections import defaultdict
 
-        # Get churned customers from last 30 days
-        thirty_days_ago = datetime.now() - timedelta(days=30)
-
-        stmt = select(ChurnedCustomer).where(
-            ChurnedCustomer.cancelled_date >= thirty_days_ago
-        ).order_by(ChurnedCustomer.cancelled_date.desc())
-
+        # Get all churned customers (last 12 months) - eldste først, nyeste nederst
+        stmt = select(ChurnedCustomer).order_by(ChurnedCustomer.cancelled_date.asc())
         result = await session.execute(stmt)
-        churned_customers = result.scalars().all()
+        all_churned = result.scalars().all()
 
-        total_churned_mrr = sum(c.amount for c in churned_customers)
+        # Group by month
+        monthly_churn = defaultdict(list)
+        for customer in all_churned:
+            if customer.cancelled_date:
+                month_key = customer.cancelled_date.strftime('%Y-%m')
+                monthly_churn[month_key].append(customer)
 
+        # Calculate totals
+        total_churned_customers = len(all_churned)
+        total_churned_mrr = sum(c.amount for c in all_churned)
+
+        # Build data with expandable rows (eldste måneder først, nyeste nederst)
         data = []
-        for customer in churned_customers:
-            data.append({
-                'cancelled_date': customer.cancelled_date.strftime('%d.%m.%Y') if customer.cancelled_date else 'N/A',
-                'customer_name': customer.customer_name,
-                'plan_name': customer.plan_name or 'N/A',
-                'amount': f"-{customer.amount:,.0f} kr",
-                'reason': customer.cancellation_reason or 'Ikke oppgitt',
-                'ltv': f"{customer.ltv:,.0f} kr" if customer.ltv else 'N/A'
-            })
+        for month_key in sorted(monthly_churn.keys(), reverse=False):
+            customers = monthly_churn[month_key]
+            month_mrr = sum(c.amount for c in customers)
+
+            # Parse month for display
+            from datetime import datetime
+            month_date = datetime.strptime(month_key, '%Y-%m')
+            month_display = month_date.strftime('%B %Y')
+
+            # Main month row
+            month_row = {
+                'id': f"month_{month_key}",
+                'expandable': True,
+                'month': f"▶ {month_display}",
+                'customers': len(customers),
+                'churned_mrr': f"-{month_mrr:,.0f} kr",
+                'avg_mrr': f"-{month_mrr / len(customers):,.0f} kr",
+                'details': ''
+            }
+
+            # Sub rows for individual customers
+            month_row['sub_rows'] = []
+            for customer in sorted(customers, key=lambda x: x.amount, reverse=True):
+                month_row['sub_rows'].append({
+                    'month': f"  → {customer.customer_name}",
+                    'customers': customer.plan_name or 'N/A',
+                    'churned_mrr': f"-{customer.amount:,.0f} kr",
+                    'avg_mrr': customer.cancelled_date.strftime('%d.%m.%Y') if customer.cancelled_date else 'N/A',
+                    'details': customer.cancellation_reason or 'Ikke oppgitt'
+                })
+
+            data.append(month_row)
 
         stats = [
-            {'label': 'Churned kunder', 'value': len(churned_customers), 'class': ''},
-            {'label': 'Churned MRR', 'value': f"-{total_churned_mrr:,.0f} kr", 'class': 'negative'},
-            {'label': 'Avg. churned MRR', 'value': f"-{total_churned_mrr / len(churned_customers) if churned_customers else 0:,.0f} kr", 'class': 'negative'},
-            {'label': 'Periode', 'value': 'Siste 30 dager', 'class': ''}
+            {'label': 'Totalt churned kunder', 'value': total_churned_customers, 'class': 'negative'},
+            {'label': 'Total churned MRR', 'value': f"-{total_churned_mrr:,.0f} kr", 'class': 'negative'},
+            {'label': 'Avg. churned MRR', 'value': f"-{total_churned_mrr / total_churned_customers if total_churned_customers else 0:,.0f} kr", 'class': 'negative'},
+            {'label': 'Måneder', 'value': len(monthly_churn), 'class': ''}
         ]
 
         columns = [
-            {'key': 'cancelled_date', 'label': 'Dato', 'class': ''},
-            {'key': 'customer_name', 'label': 'Kunde', 'class': ''},
-            {'key': 'plan_name', 'label': 'Plan', 'class': ''},
-            {'key': 'amount', 'label': 'MRR', 'class': 'number negative'},
-            {'key': 'reason', 'label': 'Årsak', 'class': ''},
-            {'key': 'ltv', 'label': 'LTV', 'class': 'number'}
+            {'key': 'month', 'label': 'Måned / Kunde', 'class': ''},
+            {'key': 'customers', 'label': 'Antall / Plan', 'class': ''},
+            {'key': 'churned_mrr', 'label': 'Churned MRR', 'class': 'number negative'},
+            {'key': 'avg_mrr', 'label': 'Snitt / Dato', 'class': 'number negative'},
+            {'key': 'details', 'label': 'Detaljer / Årsak', 'class': ''}
         ]
 
         return templates.TemplateResponse("drilldown.html", {
             "request": request,
             "title": "Churn Analysis",
-            "subtitle": "Churned customers last 30 days",
+            "subtitle": "Månedlig churn-oversikt med drilldown på kundenivå",
             "stats": stats,
             "columns": columns,
             "data": data
         })
     except Exception as e:
+        import traceback
+        print(f"Error in drilldown_churn: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Drilldown failed: {str(e)}")
 
 
@@ -1998,6 +2173,271 @@ async def drilldown_new_mrr(request: Request, session: AsyncSession = Depends(ge
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Drilldown failed: {str(e)}")
+
+
+@app.get("/api/customers/all", response_class=HTMLResponse)
+async def all_customers(request: Request, session: AsyncSession = Depends(get_session)):
+    """Complete customer overview with active and churned customers"""
+    try:
+        from sqlalchemy import select
+        from models.subscription import ChurnedCustomer
+        from datetime import datetime
+        import io
+
+        # Get all active subscriptions
+        active_stmt = select(Subscription).where(
+            Subscription.status.in_(["live", "non_renewing"])
+        ).order_by(Subscription.customer_name)
+
+        active_result = await session.execute(active_stmt)
+        active_subscriptions = active_result.scalars().all()
+
+        # Group active customers
+        active_customers = {}
+        calculator = MetricsCalculator(session)
+
+        for sub in active_subscriptions:
+            if sub.customer_id not in active_customers:
+                active_customers[sub.customer_id] = {
+                    'customer_id': sub.customer_id,
+                    'customer_name': sub.customer_name,
+                    'status': 'Aktiv',
+                    'subscriptions': [],
+                    'total_mrr': 0,
+                    'activated_at': None,
+                    'cancelled_at': None,
+                    'churn_reason': None
+                }
+
+            mrr = calculator._normalize_to_mrr(sub.amount, sub.interval, sub.interval_unit)
+            active_customers[sub.customer_id]['subscriptions'].append({
+                'plan_name': sub.plan_name or 'N/A',
+                'mrr': mrr,
+                'vessel_name': sub.vessel_name or '',
+                'call_sign': sub.call_sign or ''
+            })
+            active_customers[sub.customer_id]['total_mrr'] += mrr
+
+            # Track earliest activation date
+            if sub.activated_at:
+                if not active_customers[sub.customer_id]['activated_at'] or sub.activated_at < active_customers[sub.customer_id]['activated_at']:
+                    active_customers[sub.customer_id]['activated_at'] = sub.activated_at
+
+        # Get all churned customers
+        churned_stmt = select(ChurnedCustomer).order_by(ChurnedCustomer.cancelled_date.desc())
+        churned_result = await session.execute(churned_stmt)
+        churned_customers_list = churned_result.scalars().all()
+
+        # Build complete customer list
+        all_customers_list = []
+
+        # Add churned customers FIRST (nyeste først - already sorted desc by cancelled_date)
+        for churned in churned_customers_list:
+            all_customers_list.append({
+                'customer_id': churned.customer_id,
+                'customer_name': churned.customer_name,
+                'status': 'Churned',
+                'plans': churned.plan_name or 'N/A',
+                'vessels': 'N/A',
+                'call_signs': 'N/A',
+                'mrr': f"-{churned.amount:,.0f} kr",
+                'mrr_raw': -churned.amount,
+                'activated_at': 'N/A',
+                'cancelled_at': churned.cancelled_date.strftime('%d.%m.%Y') if churned.cancelled_date else 'N/A',
+                'churn_reason': churned.cancellation_reason or 'Ikke oppgitt',
+                'status_class': 'negative',
+                'sort_date': churned.cancelled_date if churned.cancelled_date else datetime.min
+            })
+
+        # Add active customers (sorted by activation date, newest first)
+        active_list = []
+        for cust_id, cust in active_customers.items():
+            plans = ', '.join([s['plan_name'] for s in cust['subscriptions']])
+            vessels = ', '.join([s['vessel_name'] for s in cust['subscriptions'] if s['vessel_name']])
+            call_signs = ', '.join([s['call_sign'] for s in cust['subscriptions'] if s['call_sign']])
+
+            active_list.append({
+                'customer_id': cust['customer_id'],
+                'customer_name': cust['customer_name'],
+                'status': 'Aktiv',
+                'plans': plans,
+                'vessels': vessels if vessels else 'N/A',
+                'call_signs': call_signs if call_signs else 'N/A',
+                'mrr': f"{cust['total_mrr']:,.0f} kr",
+                'mrr_raw': cust['total_mrr'],
+                'activated_at': cust['activated_at'].strftime('%d.%m.%Y') if cust['activated_at'] else 'N/A',
+                'cancelled_at': '',
+                'churn_reason': '',
+                'status_class': 'positive',
+                'sort_date': cust['activated_at'] if cust['activated_at'] else datetime.min
+            })
+
+        # Sort active customers by activation date (newest first)
+        active_list.sort(key=lambda x: x['sort_date'], reverse=True)
+        all_customers_list.extend(active_list)
+
+        # Calculate stats
+        total_active_mrr = sum(c['total_mrr'] for c in active_customers.values())
+        total_churned_mrr = sum(c.amount for c in churned_customers_list)
+
+        stats = [
+            {'label': 'Aktive kunder', 'value': len(active_customers), 'class': 'positive'},
+            {'label': 'Aktiv MRR', 'value': f"{total_active_mrr:,.0f} kr", 'class': 'positive'},
+            {'label': 'Churned kunder', 'value': len(churned_customers_list), 'class': 'negative'},
+            {'label': 'Churned MRR', 'value': f"-{total_churned_mrr:,.0f} kr", 'class': 'negative'},
+            {'label': 'Totalt kunder', 'value': len(all_customers_list), 'class': ''}
+        ]
+
+        columns = [
+            {'key': 'customer_name', 'label': 'Kunde', 'class': ''},
+            {'key': 'customer_id', 'label': 'Kunde ID', 'class': ''},
+            {'key': 'status', 'label': 'Status', 'class': ''},
+            {'key': 'plans', 'label': 'Planer', 'class': ''},
+            {'key': 'vessels', 'label': 'Fartøy', 'class': ''},
+            {'key': 'call_signs', 'label': 'Kallesignal', 'class': ''},
+            {'key': 'mrr', 'label': 'MRR', 'class': 'number'},
+            {'key': 'activated_at', 'label': 'Aktivert', 'class': ''},
+            {'key': 'cancelled_at', 'label': 'Kansellert', 'class': ''},
+            {'key': 'churn_reason', 'label': 'Årsak', 'class': ''}
+        ]
+
+        return templates.TemplateResponse("customers_all.html", {
+            "request": request,
+            "title": "Abonnenter og oppsigelser",
+            "subtitle": "Komplett oversikt over aktive og churned abonnenter",
+            "stats": stats,
+            "columns": columns,
+            "data": all_customers_list
+        })
+    except Exception as e:
+        import traceback
+        print(f"Error in all_customers: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch customers: {str(e)}")
+
+
+@app.get("/api/customers/export")
+async def export_customers_csv(session: AsyncSession = Depends(get_session)):
+    """Export all customers to CSV"""
+    try:
+        from sqlalchemy import select
+        from models.subscription import ChurnedCustomer
+        from datetime import datetime
+        import io
+        import csv
+
+        # Get all active subscriptions
+        active_stmt = select(Subscription).where(
+            Subscription.status.in_(["live", "non_renewing"])
+        ).order_by(Subscription.customer_name)
+
+        active_result = await session.execute(active_stmt)
+        active_subscriptions = active_result.scalars().all()
+
+        # Group active customers
+        active_customers = {}
+        calculator = MetricsCalculator(session)
+
+        for sub in active_subscriptions:
+            if sub.customer_id not in active_customers:
+                active_customers[sub.customer_id] = {
+                    'customer_id': sub.customer_id,
+                    'customer_name': sub.customer_name,
+                    'status': 'Aktiv',
+                    'subscriptions': [],
+                    'total_mrr': 0,
+                    'activated_at': None,
+                    'cancelled_at': '',
+                    'churn_reason': ''
+                }
+
+            mrr = calculator._normalize_to_mrr(sub.amount, sub.interval, sub.interval_unit)
+            active_customers[sub.customer_id]['subscriptions'].append({
+                'plan_name': sub.plan_name or 'N/A',
+                'mrr': mrr,
+                'vessel_name': sub.vessel_name or '',
+                'call_sign': sub.call_sign or ''
+            })
+            active_customers[sub.customer_id]['total_mrr'] += mrr
+
+            # Track earliest activation date
+            if sub.activated_at:
+                if not active_customers[sub.customer_id]['activated_at'] or sub.activated_at < active_customers[sub.customer_id]['activated_at']:
+                    active_customers[sub.customer_id]['activated_at'] = sub.activated_at
+
+        # Get all churned customers
+        churned_stmt = select(ChurnedCustomer).order_by(ChurnedCustomer.cancelled_date.desc())
+        churned_result = await session.execute(churned_stmt)
+        churned_customers_list = churned_result.scalars().all()
+
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=';')
+
+        # Write header
+        writer.writerow([
+            'Kunde ID', 'Kundenavn', 'Status', 'Planer', 'Fartøy',
+            'MRR (kr)', 'Aktivert', 'Kansellert', 'Churn Årsak'
+        ])
+
+        # Write churned customers FIRST (nyeste først - already sorted desc by cancelled_date)
+        for churned in churned_customers_list:
+            writer.writerow([
+                churned.customer_id,
+                churned.customer_name,
+                'Churned',
+                churned.plan_name or 'N/A',
+                'N/A',
+                f"-{churned.amount:.0f}",
+                'N/A',
+                churned.cancelled_date.strftime('%d.%m.%Y') if churned.cancelled_date else 'N/A',
+                churned.cancellation_reason or 'Ikke oppgitt'
+            ])
+
+        # Write active customers (sorted by activation date, newest first)
+        active_list = []
+        for cust_id, cust in active_customers.items():
+            active_list.append({
+                'customer_id': cust['customer_id'],
+                'customer_name': cust['customer_name'],
+                'subscriptions': cust['subscriptions'],
+                'total_mrr': cust['total_mrr'],
+                'activated_at': cust['activated_at']
+            })
+
+        # Sort by activation date (newest first)
+        active_list.sort(key=lambda x: x['activated_at'] if x['activated_at'] else datetime.min, reverse=True)
+
+        for cust in active_list:
+            plans = ', '.join([s['plan_name'] for s in cust['subscriptions']])
+            vessels = ', '.join([s['vessel_name'] for s in cust['subscriptions'] if s['vessel_name']])
+
+            writer.writerow([
+                cust['customer_id'],
+                cust['customer_name'],
+                'Aktiv',
+                plans,
+                vessels if vessels else 'N/A',
+                f"{cust['total_mrr']:.0f}",
+                cust['activated_at'].strftime('%d.%m.%Y') if cust['activated_at'] else 'N/A',
+                '',
+                ''
+            ])
+
+        # Prepare response
+        output.seek(0)
+
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename=kundeliste_{datetime.now().strftime('%Y%m%d')}.csv"
+            }
+        )
+
+    except Exception as e:
+        import traceback
+        print(f"Error in export_customers_csv: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 
 @app.get("/api/forecast", response_class=HTMLResponse)

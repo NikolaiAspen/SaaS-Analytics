@@ -279,7 +279,7 @@
 
             <div class="nav-divider"></div>
 
-            <div class="nav-section-title">FAKTURAER</div>
+            <div class="nav-section-title">FAKTURAER <span style="background: var(--warn); color: #0b1020; padding: 2px 6px; border-radius: 4px; font-size: 9px; margin-left: 4px;">BETA</span></div>
             <a href="/api/invoices/dashboard" class="nav-link active">
                 <span class="nav-link-icon">🧾</span>
                 <span>Faktura Dashboard</span>
@@ -329,12 +329,14 @@
 
     <div class="container">
         <header>
-            <h1>🧾 Faktura-basert MRR Dashboard</h1>
-            <span class="ver">Oppdatert: {{ metrics.snapshot_date.strftime('%d.%m.%Y %H:%M') }}</span>
+            <div>
+                <h1>🧾 Faktura-basert MRR Dashboard <span style="background: var(--warn); color: #0b1020; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-left: 10px;">BETA</span></h1>
+                <span class="ver">Oppdatert: {{ metrics.snapshot_date.strftime('%d.%m.%Y %H:%M') }}</span>
+            </div>
         </header>
 
         <div class="info-note">
-            <strong>ℹ️ Om Faktura-basert MRR:</strong> Dette dashboardet beregner MRR basert på fakturaer fra Zoho Billing, ikke subscriptions. MRR beregnes fra fakturaperiodens lengde i beskrivelsesfeltet.
+            <strong>ℹ️ Om Faktura-basert MRR (BETA):</strong> Dette dashboardet er under utvikling og beregner MRR basert på fakturaer fra Zoho Billing, ikke subscriptions. MRR beregnes fra fakturaperiodens lengde i beskrivelsesfeltet. Vær oppmerksom på at beregningene kan være ufullstendige.
         </div>
 
         <div style="margin-bottom: 16px;">

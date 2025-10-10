@@ -101,7 +101,7 @@
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
             margin-left: 240px;
             padding: 20px;
@@ -137,6 +137,30 @@
             margin-bottom: 16px;
         }
 
+        .info-note {
+            background: rgba(159, 177, 255, 0.1);
+            padding: 16px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            color: var(--muted);
+            font-size: 14px;
+            border-left: 3px solid var(--muted);
+            line-height: 1.6;
+        }
+
+        .info-note strong {
+            color: var(--ink);
+        }
+
+        .info-note ul {
+            margin-top: 8px;
+            margin-left: 20px;
+        }
+
+        .info-note li {
+            margin-bottom: 4px;
+        }
+
         .stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -165,6 +189,14 @@
             font-weight: 700;
         }
 
+        .stat-value.positive {
+            color: var(--good);
+        }
+
+        .stat-value.negative {
+            color: var(--bad);
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -187,6 +219,30 @@
             top: 0;
             background: var(--panel);
             z-index: 10;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        th:hover {
+            background: rgba(18, 25, 51, 0.95);
+            color: var(--ink);
+        }
+
+        th.sortable::after {
+            content: ' ↕';
+            opacity: 0.3;
+        }
+
+        th.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+            color: var(--good);
+        }
+
+        th.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
+            color: var(--good);
         }
 
         td {
@@ -204,6 +260,10 @@
 
         .negative {
             color: var(--bad);
+        }
+
+        .positive {
+            color: var(--good);
         }
 
         button, a.button {
@@ -248,21 +308,31 @@
             -webkit-overflow-scrolling: touch;
         }
 
-        .expandable {
-            cursor: pointer;
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
-        .expandable:hover {
-            background: rgba(255, 255, 255, 0.05);
+        .status-badge.aktiv {
+            background: rgba(61, 220, 151, 0.15);
+            color: var(--good);
         }
 
-        .sub-row {
-            background: rgba(15, 21, 48, 0.4);
+        .status-badge.churned {
+            background: rgba(255, 107, 107, 0.15);
+            color: var(--bad);
         }
 
-        .sub-row td {
-            padding-left: 40px;
-            font-size: 12px;
+        .filter-section {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
         }
 
         .filter-btn {
@@ -283,6 +353,15 @@
         }
 
         @media (max-width: 768px) {
+            .sidebar {
+                width: 0;
+                overflow: hidden;
+            }
+
+            .container {
+                margin-left: 0;
+            }
+
             .stats {
                 grid-template-columns: 1fr;
             }
@@ -323,19 +402,19 @@
 
             <div class="nav-section">
                 <div class="nav-section-title">ANALYSE</div>
-                <a href="/api/drilldown/mrr" class="nav-link" data-page="mrr">
+                <a href="/api/drilldown/mrr" class="nav-link">
                     <span class="nav-link-icon">💰</span>
                     <span>MRR Grunnlag</span>
                 </a>
-                <a href="/api/drilldown/customers" class="nav-link" data-page="customers">
+                <a href="/api/drilldown/customers" class="nav-link">
                     <span class="nav-link-icon">👥</span>
                     <span>Selskaper</span>
                 </a>
-                <a href="/api/customers/all" class="nav-link">
+                <a href="/api/customers/all" class="nav-link active">
                     <span class="nav-link-icon">📋</span>
                     <span>Kunder og oppsigelser</span>
                 </a>
-                <a href="/api/drilldown/churn" class="nav-link" data-page="churn">
+                <a href="/api/drilldown/churn" class="nav-link">
                     <span class="nav-link-icon">📉</span>
                     <span>Churn</span>
                 </a>
@@ -368,22 +447,27 @@
                 <div class="subtitle">{{ subtitle }}</div>
             </div>
             <div class="actions">
-                <button onclick="exportToExcel()" class="btn-export">📥 Eksporter til Excel</button>
+                <a href="/api/customers/export" class="button btn-export">📥 Last ned CSV</a>
             </div>
         </header>
 
+        <div class="info-note">
+            <strong>ℹ️ Om denne oversikten:</strong><br>
+            Denne siden viser alle kunder i systemet, både aktive og churned:
+            <ul>
+                <li><strong>Aktive kunder:</strong> Har minst én live eller non-renewing subscription</li>
+                <li><strong>Churned kunder:</strong> Har kansellert sine subscriptions, med årsak til churn</li>
+                <li><strong>MRR:</strong> Månedlig tilbakevendende inntekt beregnet fra subscriptions</li>
+                <li><strong>CSV-eksport:</strong> Last ned komplett kundeliste for videre analyse</li>
+            </ul>
+        </div>
+
         <div class="card">
-            {% if filters %}
-            <div class="filters" style="margin-bottom: 20px; display: flex; gap: 8px; flex-wrap: wrap;">
-                {% for filter in filters %}
-                <button
-                    onclick="applyFilter('{{ filter.value }}')"
-                    class="filter-btn {{ 'active' if filter.value == current_filter else '' }}">
-                    {{ filter.label }}
-                </button>
-                {% endfor %}
+            <div class="filter-section">
+                <button onclick="filterTable('all')" class="filter-btn active" id="filter-all">Alle</button>
+                <button onclick="filterTable('aktiv')" class="filter-btn" id="filter-aktiv">Kun Aktive</button>
+                <button onclick="filterTable('churned')" class="filter-btn" id="filter-churned">Kun Churned</button>
             </div>
-            {% endif %}
 
             <div class="stats">
                 {% for stat in stats %}
@@ -405,22 +489,18 @@
                     </thead>
                     <tbody>
                         {% for row in data %}
-                        <tr class="{{ 'expandable' if row.expandable else '' }}"
-                            {% if row.expandable %}onclick="toggleRow(this)"{% endif %}
-                            data-row-id="{{ row.id }}">
-                            {% for col in columns %}
-                            <td class="{{ col.class }}">{{ row[col.key] }}</td>
-                            {% endfor %}
+                        <tr data-status="{{ row.status|lower }}">
+                            <td>{{ row.customer_name }}</td>
+                            <td>{{ row.customer_id }}</td>
+                            <td><span class="status-badge {{ row.status|lower }}">{{ row.status }}</span></td>
+                            <td>{{ row.plans }}</td>
+                            <td>{{ row.vessels }}</td>
+                            <td>{{ row.call_signs }}</td>
+                            <td class="number {{ row.status_class }}">{{ row.mrr }}</td>
+                            <td>{{ row.activated_at }}</td>
+                            <td>{{ row.cancelled_at }}</td>
+                            <td>{{ row.churn_reason }}</td>
                         </tr>
-                        {% if row.sub_rows %}
-                        {% for sub in row.sub_rows %}
-                        <tr class="sub-row" style="display: none;" data-parent="{{ row.id }}">
-                            {% for col in columns %}
-                            <td class="{{ col.class }}">{{ sub[col.key] }}</td>
-                            {% endfor %}
-                        </tr>
-                        {% endfor %}
-                        {% endif %}
                         {% endfor %}
                     </tbody>
                 </table>
@@ -439,67 +519,99 @@
                     link.classList.add('active');
                 }
             });
+
+            // Initialize sortable table headers
+            initSortableTable();
         });
 
-        function applyFilter(filterValue) {
-            const url = new URL(window.location);
-            url.searchParams.set('status_filter', filterValue);
-            window.location = url;
-        }
+        function filterTable(status) {
+            const rows = document.querySelectorAll('#dataTable tbody tr');
+            const buttons = document.querySelectorAll('.filter-btn');
 
-        function toggleRow(row) {
-            const rowId = row.getAttribute('data-row-id');
-            const subRows = document.querySelectorAll(`tr[data-parent="${rowId}"]`);
+            // Remove active class from all buttons
+            buttons.forEach(btn => btn.classList.remove('active'));
 
-            subRows.forEach(subRow => {
-                if (subRow.style.display === 'none') {
-                    subRow.style.display = '';
+            // Add active class to clicked button
+            document.getElementById(`filter-${status}`).classList.add('active');
+
+            // Filter rows
+            rows.forEach(row => {
+                const rowStatus = row.getAttribute('data-status');
+                if (status === 'all' || rowStatus === status) {
+                    row.style.display = '';
                 } else {
-                    subRow.style.display = 'none';
+                    row.style.display = 'none';
                 }
             });
         }
 
-        function exportToExcel() {
-            // Get table data
+        function initSortableTable() {
             const table = document.getElementById('dataTable');
-            const rows = [];
+            const headers = table.querySelectorAll('th');
 
-            // Get headers
-            const headers = [];
-            table.querySelectorAll('thead th').forEach(th => {
-                headers.push(th.textContent);
+            headers.forEach((header, index) => {
+                header.classList.add('sortable');
+                header.setAttribute('data-column', index);
+                header.addEventListener('click', () => sortTable(index));
             });
-            rows.push(headers);
+        }
 
-            // Get data rows (only visible main rows, not sub-rows)
-            table.querySelectorAll('tbody tr:not(.sub-row)').forEach(tr => {
-                const row = [];
-                tr.querySelectorAll('td').forEach(td => {
-                    row.push(td.textContent.trim());
-                });
-                rows.push(row);
+        function sortTable(columnIndex) {
+            const table = document.getElementById('dataTable');
+            const tbody = table.querySelector('tbody');
+            const headers = table.querySelectorAll('th');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            // Determine sort direction
+            const header = headers[columnIndex];
+            const isAscending = !header.classList.contains('sort-asc');
+
+            // Remove sort classes from all headers
+            headers.forEach(h => {
+                h.classList.remove('sort-asc', 'sort-desc');
             });
 
-            // Convert to CSV
-            const csv = rows.map(row => row.map(cell => {
-                // Escape quotes and wrap in quotes if contains comma
-                if (cell.includes(',') || cell.includes('"')) {
-                    return '"' + cell.replace(/"/g, '""') + '"';
+            // Add appropriate sort class
+            header.classList.add(isAscending ? 'sort-asc' : 'sort-desc');
+
+            // Sort rows
+            rows.sort((a, b) => {
+                const aCell = a.cells[columnIndex];
+                const bCell = b.cells[columnIndex];
+
+                // Get text content
+                let aValue = aCell.textContent.trim();
+                let bValue = bCell.textContent.trim();
+
+                // Handle MRR column (remove "kr" and commas, handle negative values)
+                if (columnIndex === 6) { // MRR column
+                    aValue = parseFloat(aValue.replace(/[^\d,-]/g, '').replace(',', '')) || 0;
+                    bValue = parseFloat(bValue.replace(/[^\d,-]/g, '').replace(',', '')) || 0;
                 }
-                return cell;
-            }).join(',')).join('\n');
+                // Handle date columns
+                else if (columnIndex === 7 || columnIndex === 8) { // Aktivert / Kansellert
+                    // Convert DD.MM.YYYY to sortable format
+                    aValue = aValue === 'N/A' || aValue === '' ? '01.01.1900' : aValue;
+                    bValue = bValue === 'N/A' || bValue === '' ? '01.01.1900' : bValue;
 
-            // Download
-            const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', '{{ title }}.csv');
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+                    const aParts = aValue.split('.');
+                    const bParts = bValue.split('.');
+                    aValue = aParts[2] + aParts[1] + aParts[0]; // YYYYMMDD
+                    bValue = bParts[2] + bParts[1] + bParts[0]; // YYYYMMDD
+                }
+
+                // Compare values
+                if (typeof aValue === 'number' && typeof bValue === 'number') {
+                    return isAscending ? aValue - bValue : bValue - aValue;
+                } else {
+                    return isAscending
+                        ? aValue.localeCompare(bValue, 'no')
+                        : bValue.localeCompare(aValue, 'no');
+                }
+            });
+
+            // Re-append rows in sorted order
+            rows.forEach(row => tbody.appendChild(row));
         }
     </script>
 </body>
