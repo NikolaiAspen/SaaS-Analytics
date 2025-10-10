@@ -518,6 +518,12 @@
             const currentPath = window.location.pathname;
             const navLinks = document.querySelectorAll('.sidebar .nav-link');
 
+            // First, remove all active classes
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+            });
+
+            // Then add active to the matching link
             navLinks.forEach(link => {
                 if (link.getAttribute('href') === currentPath) {
                     link.classList.add('active');

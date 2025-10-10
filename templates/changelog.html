@@ -146,7 +146,7 @@
 
         .changelog-content h2 {
             font-size: 20px;
-            color: var(--good);
+            color: var(--ink);
             margin: 24px 0 12px 0;
             display: flex;
             align-items: center;
@@ -320,6 +320,12 @@
             const currentPath = window.location.pathname;
             const navLinks = document.querySelectorAll('.sidebar .nav-link');
 
+            // First, remove all active classes
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+            });
+
+            // Then add active to the matching link
             navLinks.forEach(link => {
                 if (link.getAttribute('href') === currentPath) {
                     link.classList.add('active');
