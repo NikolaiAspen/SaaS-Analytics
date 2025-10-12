@@ -334,9 +334,32 @@ class InvoiceService:
         Returns:
             List of monthly trend data
         """
-        stmt = select(InvoiceMRRSnapshot).order_by(InvoiceMRRSnapshot.month.desc()).limit(months)
-        result = await self.session.execute(stmt)
-        snapshots = result.scalars().all()
+        # Use text-based query to avoid column existence issues
+        from sqlalchemy import text
+
+        # Try to get snapshots, handling potential missing columns gracefully
+        try:
+            stmt = select(InvoiceMRRSnapshot).order_by(InvoiceMRRSnapshot.month.desc()).limit(months)
+            result = await self.session.execute(stmt)
+            snapshots = result.scalars().all()
+        except Exception as e:
+            # If columns don't exist, fetch with raw SQL selecting only core columns
+            print(f"Warning: Failed to query invoice snapshots (missing columns?): {e}")
+            query = text("""
+                SELECT id, month, mrr, arr, total_customers, active_invoices,
+                       new_mrr, churned_mrr, net_mrr, arpu, source, created_at, updated_at
+                FROM invoice_mrr_snapshots
+                ORDER BY month DESC
+                LIMIT :limit
+            """)
+            result = await self.session.execute(query, {"limit": months})
+            rows = result.fetchall()
+
+            # Convert to snapshot-like objects
+            from collections import namedtuple
+            Snapshot = namedtuple('Snapshot', ['id', 'month', 'mrr', 'arr', 'total_customers', 'active_invoices',
+                                               'new_mrr', 'churned_mrr', 'net_mrr', 'arpu', 'source', 'created_at', 'updated_at'])
+            snapshots = [Snapshot(*row) for row in rows]
 
         # Reverse to get chronological order
         snapshots = list(reversed(snapshots))
@@ -369,9 +392,9 @@ class InvoiceService:
                 "mrr_change": mrr_change,
                 "mrr_change_pct": mrr_change_pct,
                 "customer_change": customer_change,
-                "active_lines": snapshot.active_lines,
-                "invoice_lines": snapshot.invoice_lines,
-                "creditnote_lines": snapshot.creditnote_lines,
+                "active_lines": getattr(snapshot, 'active_lines', 0),
+                "invoice_lines": getattr(snapshot, 'invoice_lines', 0),
+                "creditnote_lines": getattr(snapshot, 'creditnote_lines', 0),
             })
 
             prev_mrr = snapshot.mrr
