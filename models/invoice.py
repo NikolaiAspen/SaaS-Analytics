@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Float, Integer, DateTime, ForeignKey, Boolean, Text
-from sqlalchemy.orm import relationship, deferred
+from sqlalchemy.orm import relationship
 from datetime import datetime
 from models.subscription import Base
 
@@ -66,10 +66,8 @@ class InvoiceLineItem(Base):
     unit = Column(String)  # "mnd", "år", "6mnd" - NOT reliable for period calculation
 
     # Vessel info (for matching with subscriptions)
-    # These columns may not exist in older Railway PostgreSQL databases
-    # Use deferred() to avoid loading them automatically (causes error if columns don't exist)
-    vessel_name = deferred(Column(String, index=True, nullable=True))  # CF.Fartøy from XLSX
-    call_sign = deferred(Column(String, index=True, nullable=True))  # CF.Radiokallesignal from XLSX
+    vessel_name = Column(String, index=True, nullable=True)  # CF.Fartøy from XLSX
+    call_sign = Column(String, index=True, nullable=True)  # CF.Radiokallesignal from XLSX
 
     # Pricing
     price = Column(Float, nullable=False)  # Excluding tax
@@ -110,10 +108,10 @@ class InvoiceMRRSnapshot(Base):
     mrr = Column(Float, nullable=False)  # Total MRR for this month from all invoice line items
     arr = Column(Float, nullable=False)  # ARR = MRR * 12
 
-    # Line item counts (deferred to avoid loading if columns don't exist in Railway)
-    active_lines = deferred(Column(Integer, default=0))  # Total active lines (invoices + credit notes)
-    invoice_lines = deferred(Column(Integer, default=0))  # Number of invoice lines
-    creditnote_lines = deferred(Column(Integer, default=0))  # Number of credit note lines
+    # Line item counts
+    active_lines = Column(Integer, default=0)  # Total active lines (invoices + credit notes)
+    invoice_lines = Column(Integer, default=0)  # Number of invoice lines
+    creditnote_lines = Column(Integer, default=0)  # Number of credit note lines
 
     # Customer metrics
     total_customers = Column(Integer, default=0)  # Unique customers with active MRR this month
