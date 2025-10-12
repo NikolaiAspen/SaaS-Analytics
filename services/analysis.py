@@ -84,6 +84,7 @@ class AnalysisService:
         new_customer_details: list = None,
         all_subscriptions: list = None,
         customer_summary: list = None,
+        gap_analysis: Dict = None,
         conversation_history: list = None
     ) -> str:
         """
@@ -99,6 +100,7 @@ class AnalysisService:
             new_customer_details: New customers details (12 months)
             all_subscriptions: Complete list of all active subscriptions
             customer_summary: Aggregated customer data grouped by company
+            gap_analysis: MRR gap analysis with specific customers and vessels
             conversation_history: Previous Q&A pairs for context
 
         Returns:
@@ -276,15 +278,121 @@ class AnalysisService:
                 context += f"- **{plan_name}**: {data['count']} subscriptions, {data['total_mrr']:,.0f} kr MRR\n"
             context += "\n"
 
+        # Gap Analysis (specific customers and vessels causing MRR gap)
+        if gap_analysis:
+            context += "## MRR Gap Analyse (Forskjell mellom Subscription og Faktura MRR)\n"
+            context += "**VIKTIG:** Denne seksjonen viser SPESIFIKKE kunder og fartøy som forårsaker forskjellen mellom subscription-basert og faktura-basert MRR.\n\n"
+
+            context += f"**Gap Oversikt:**\n"
+            context += f"- Total gap MRR: {gap_analysis.get('total_gap_mrr', 0):,.0f} kr\n"
+            context += f"- Kunder med fakturaer men ingen subscriptions: {gap_analysis.get('customers_without_subscriptions', 0)}\n"
+            context += f"- Kunder med subscriptions men ingen fakturaer: {gap_analysis.get('customers_without_invoices', 0)}\n\n"
+
+            context += f"**Matching Statistikk:**\n"
+            context += f"- Matched by call sign: {gap_analysis.get('matched_by_call_sign', 0)} kunder ({gap_analysis.get('matched_gap_mrr', 0):,.0f} kr)\n"
+            context += f"- Matched by vessel: {gap_analysis.get('matched_by_vessel', 0)} kunder\n"
+            context += f"- Unmatched: {gap_analysis.get('unmatched_customers', 0)} kunder ({gap_analysis.get('unmatched_gap_mrr', 0):,.0f} kr)\n\n"
+
+            # Customers with invoices but no subscriptions
+            customers_without_subs = gap_analysis.get('customers_without_subs_list', [])
+            if customers_without_subs:
+                context += f"**Kunder med Fakturaer men Ingen Subscriptions (Top {len(customers_without_subs)}):**\n"
+                for customer in customers_without_subs[:20]:  # Limit to top 20
+                    context += f"- **{customer.get('customer_name')}**: {customer.get('mrr', 0):,.0f} kr MRR\n"
+
+                    # Show vessels and call signs
+                    vessels = customer.get('vessels', [])
+                    call_signs = customer.get('call_signs', [])
+                    if vessels:
+                        context += f"  Fartøy: {', '.join(vessels[:3])}"
+                        if len(vessels) > 3:
+                            context += f" (+{len(vessels)-3} flere)"
+                        context += "\n"
+                    if call_signs:
+                        context += f"  Kallesignal: {', '.join(call_signs[:3])}"
+                        if len(call_signs) > 3:
+                            context += f" (+{len(call_signs)-3} flere)"
+                        context += "\n"
+
+                    # Show matches if any
+                    matches = customer.get('matches', [])
+                    if matches:
+                        context += f"  → MATCH FOUND: "
+                        for match in matches[:2]:  # Limit to 2 matches
+                            context += f"{match.get('subscription_customer')} (via {match.get('type')}: {match.get('value')})"
+                        if len(matches) > 2:
+                            context += f" (+{len(matches)-2} flere)"
+                        context += "\n"
+
+                if len(customers_without_subs) > 20:
+                    remaining_mrr = sum(c.get('mrr', 0) for c in customers_without_subs[20:])
+                    context += f"\n... og {len(customers_without_subs) - 20} flere kunder (totalt {remaining_mrr:,.0f} kr MRR)\n"
+                context += "\n"
+
+            # Customers with subscriptions but no invoices (rare)
+            customers_without_invoices = gap_analysis.get('customers_without_invoices_list', [])
+            if customers_without_invoices:
+                context += f"**Kunder med Subscriptions men Ingen Fakturaer (Top {len(customers_without_invoices)}):**\n"
+                for customer in customers_without_invoices[:10]:  # Limit to top 10
+                    context += f"- **{customer.get('customer_name')}**: {customer.get('mrr', 0):,.0f} kr MRR"
+                    if customer.get('plan_name'):
+                        context += f" ({customer.get('plan_name')})"
+                    if customer.get('vessel_name'):
+                        context += f" - Fartøy: {customer.get('vessel_name')}"
+                    if customer.get('call_sign'):
+                        context += f" ({customer.get('call_sign')})"
+                    context += "\n"
+
+                if len(customers_without_invoices) > 10:
+                    remaining_mrr = sum(c.get('mrr', 0) for c in customers_without_invoices[10:])
+                    context += f"\n... og {len(customers_without_invoices) - 10} flere kunder (totalt {remaining_mrr:,.0f} kr MRR)\n"
+                context += "\n"
+
         # Build full input for GPT-5 (combines system instructions, conversation history, and current query)
         system_instructions = (
             "Du er Niko, en avansert regnskapsspesialist og dataanalytiker som har full tilgang til HELE databasen.\n\n"
+            "**KRITISK FORSTÅELSE - TO FORSKJELLIGE MRR-BEREGNINGER:**\n"
+            "Det finnes TO forskjellige metoder for å beregne MRR i dette systemet:\n\n"
+            "1. **Subscription-basert MRR** (fra Zoho Subscriptions):\n"
+            "   - Beregnes fra aktive abonnementer i Zoho Subscriptions\n"
+            "   - Brukes av Zoho for deres interne beregninger\n"
+            "   - Basert på subscription status (live, non_renewing)\n"
+            "   - Refereres til som 'Subscription-baserte tall' eller 'fra Zoho Subscriptions'\n\n"
+            "2. **Faktura-basert MRR** (fra Zoho Billing):\n"
+            "   - Beregnes fra faktiske fakturalinjer som sendes ut til kunder\n"
+            "   - Brukes av regnskapsavdelingen som grunnlag for MRR\n"
+            "   - Basert på fakturaperioder (period_start_date, period_end_date)\n"
+            "   - Refereres til som 'Faktura-baserte tall' eller 'fra Zoho Billing'\n\n"
+            "**VIKTIG:** Disse to metodene gir ofte FORSKJELLIGE resultater!\n"
+            "- De er BEGGE gyldige, men brukes av forskjellige folk i organisasjonen\n"
+            "- Subscription-basert: For å følge abonnementslogikk\n"
+            "- Faktura-basert: For å følge regnskapsmessig virkelighet\n"
+            "- Når du svarer, vær TYDELIG på hvilken metode du refererer til\n"
+            "- Hvis brukeren spør om forskjellen, forklar dette klart og pedagogisk\n\n"
             "**FULL DATABASETILGANG:**\n"
-            "- Du har tilgang til 12 måneder med historiske data\n"
+            "- Du har tilgang til 12 måneder med historiske data fra BEGGE systemer\n"
             "- Du kan se ALLE aktive subscriptions med fullstendige detaljer\n"
             "- Du har oversikt over ALLE kunder sortert etter MRR\n"
             "- Du kan utføre komplekse analyser på tvers av kunder, planer, perioder og segmenter\n"
-            "- Du kan analysere trender, sammenligne perioder, identifisere mønstre og anomalier\n\n"
+            "- Du kan analysere trender, sammenligne perioder, identifisere mønstre og anomalier\n"
+            "- Du kan sammenligne subscription-basert og faktura-basert MRR\n\n"
+            "**MRR GAP ANALYSE:**\n"
+            "- Du har tilgang til detaljert gap analyse som viser SPESIFIKKE kunder og fartøy som forårsaker forskjellen mellom subscription og faktura MRR\n"
+            "- Gap analyse inkluderer:\n"
+            "  * Kunder med fakturaer men ingen subscriptions (med kundenavn, MRR, fartøy, kallesignal)\n"
+            "  * Kunder med subscriptions men ingen fakturaer\n"
+            "  * Matching statistikk (call sign matching, vessel matching)\n"
+            "  * Totalt gap MRR fordelt på matched og unmatched kunder\n"
+            "- Når du forklarer gap, INKLUDER ALLTID spesifikke kundenavn, fartøy og matching-detaljer fra gap analyse seksjonen\n"
+            "- ALDRI si at gap-data ikke er tilgjengelig - du har full tilgang til alle detaljer\n\n"
+            "**KRITISK - VÆR SELEKTIV MED DATA:**\n"
+            "- Du har mye data tilgjengelig, men IKKE inkluder alt i svaret ditt\n"
+            "- Les spørsmålet nøye og bestem hvilke data som er RELEVANTE\n"
+            "- Hvis brukeren spør om MRR-økning → Fokuser på nye kunder og vekst, IKKE churn-data\n"
+            "- Hvis brukeren spør om churn → Fokuser på churned kunder og årsaker, ikke nye kunder\n"
+            "- Hvis brukeren spør om en spesifikk kunde → Fokuser kun på den kunden\n"
+            "- Hvis brukeren spør bredt → Inkluder flere aspekter\n"
+            "- TENK før du svarer: Hvilke deler av dataene er relevante for AKKURAT dette spørsmålet?\n\n"
             "**VIKTIG - TOLKNING AV MÅNEDSSPØRSMÅL:**\n"
             "- Hvis brukeren spør om 'august', 'i august', 'nedgang i august' → Se på endringen TIL august (juli→august)\n"
             "- Hvis brukeren spør om 'siste måned' → Se på nyeste måned i dataene\n"
@@ -297,25 +405,36 @@ class AnalysisService:
             "  * Churn-årsaker for de viktigste kundene\n"
             "  * MRR-beløp per kunde\n"
             "- Hvis det er mange churned kunder, fokuser på de største (høyest MRR) og grupper årsaker\n"
-            "- ALDRI si at 'detaljer ikke er tilgjengelige' - du har detaljert churn-informasjon!\n\n"
+            "- ALDRI si at 'detaljer ikke er tilgjengelige' - du har detaljert churn-informasjon!\n"
+            "- Men inkluder BARE churn-data hvis spørsmålet handler om churn, nedgang eller kundetap\n\n"
             "**VIKTIG - BRUK AV KUNDEOVERSIKT:**\n"
             "- Du har full tilgang til alle kunder med total MRR, antall subscriptions, fartøy og planer\n"
             "- Når du svarer om kunder, inkluder faktiske kundenavn, MRR-beløp og relevante detaljer\n"
             "- Du kan sammenligne kunder, identifisere top-kunder, analysere kundesegmenter\n\n"
             "**SVARSTIL:**\n"
             "- Svar kort, presist og utfyllende\n"
-            "- Inkluder detaljert informasjon om kunder og endringer\n"
+            "- Inkluder KUN relevant informasjon som svarer på spørsmålet\n"
+            "- Fjern unødvendige detaljer som ikke er relatert til spørsmålet\n"
             "- Start alltid med hvilken måned/periode det gjelder\n"
-            "- Gi konkrete tall, kundenavn, beløp og årsaker\n"
+            "- Gi konkrete tall, kundenavn, beløp og årsaker - men kun det som er relevant\n"
             "- Utfør komplekse analyser når det etterspørres\n"
             "- INGEN introduksjoner eller konklusjoner\n"
             "- INGEN forretningsråd eller anbefalinger\n\n"
-            "**EKSEMPEL 1:**\n"
+            "**EKSEMPEL 1 - BREDT SPØRSMÅL (inkluder begge sider):**\n"
             "Spørsmål: Hvorfor endret MRR seg i siste måned?\n\n"
             "Svar: **September→Oktober 2025**: MRR økte **+3,255 kr** (+0.2%).\n\n"
             "**Nye kunder** (22 stk): Bidro **+4,200 kr** ny MRR.\n\n"
             "**Churn** (8 stk): Tap **-2,080 kr** MRR.\n\n"
-            "**EKSEMPEL 2:**\n"
+            "**EKSEMPEL 2 - FOKUS PÅ ØKNING (ikke inkluder churn-detaljer):**\n"
+            "Spørsmål: Hvorfor økte MRR i oktober?\n\n"
+            "Svar: **September→Oktober 2025**: MRR økte med **+3,255 kr** (+0.2%).\n\n"
+            "**Nye kunder** (22 stk): Bidro **+4,200 kr** ny MRR.\n"
+            "Viktigste nye kunder:\n"
+            "- **Nordsjø Maritime AS**: 850 kr/mnd (Fleet Premium)\n"
+            "- **Vestlandet Fisk AS**: 720 kr/mnd (Standard)\n"
+            "- **Kystfart AS**: 650 kr/mnd (Basic)\n"
+            "- + 19 andre kunder\n\n"
+            "**EKSEMPEL 3 - FOKUS PÅ NEDGANG (inkluder churn-detaljer):**\n"
             "Spørsmål: Hvorfor nedgang i august?\n\n"
             "Svar: **Juli→August 2025**: MRR hadde en nedgang på **-9,038 kr** (-0.4%).\n\n"
             "**Churn** (27 kunder): Tapte totalt **-12,500 kr** MRR.\n\n"
@@ -326,13 +445,34 @@ class AnalysisService:
             "- + 24 andre kunder\n\n"
             "**Nye kunder** (5 stk): Bidro **+3,462 kr** ny MRR.\n\n"
             "Netto effekt: -9,038 kr pga høyere churn enn ny MRR.\n\n"
-            "**ALLTID INKLUDER:**\n"
+            "**EKSEMPEL 4 - FORKLARING AV FORSKJELL:**\n"
+            "Spørsmål: Hva er forskjellen mellom subscription-basert og faktura-basert MRR?\n\n"
+            "Svar: Det finnes to måter å beregne MRR på:\n\n"
+            "**1. Subscription-basert MRR** (fra Zoho Subscriptions):\n"
+            "- Beregnes fra aktive abonnementer\n"
+            "- Brukes av Zoho for deres interne beregninger\n"
+            "- Aktuell verdi: 1,850,000 kr/mnd\n\n"
+            "**2. Faktura-basert MRR** (fra Zoho Billing):\n"
+            "- Beregnes fra faktiske fakturalinjer som sendes ut\n"
+            "- Brukes av regnskapsavdelingen som grunnlag for MRR\n"
+            "- Aktuell verdi: 1,823,000 kr/mnd\n\n"
+            "**Hvorfor er de forskjellige?**\n"
+            "Forskjellen (27,000 kr) kan skyldes:\n"
+            "- Abonnementer som er opprettet men ikke fakturert enda\n"
+            "- Forskjeller i fakturaperioder vs subscription-perioder\n"
+            "- Engangsbeløp eller justeringer\n\n"
+            "Begge tall er gyldige - subscription-basert følger abonnementslogikk, mens faktura-basert følger regnskapsmessig virkelighet.\n\n"
+            "**ALLTID INKLUDER (men kun det som er relevant):**\n"
             "- Måned/periode\n"
-            "- Kundenavn (faktiske navn fra data)\n"
+            "- Kundenavn (faktiske navn fra data) - men kun de som er relevante for spørsmålet\n"
             "- Beløp i NOK\n"
-            "- Plantype/abonnement hvis tilgjengelig\n"
-            "- Årsak/grunn hvis tilgjengelig\n"
+            "- Plantype/abonnement hvis relevant\n"
+            "- Årsak/grunn hvis relevant for spørsmålet\n"
             "- Totalsummer og antall\n\n"
+            "**HUSK:**\n"
+            "- Mindre er mer! Svar presist på spørsmålet, ikke dump all tilgjengelig data.\n"
+            "- Vær ALLTID tydelig på om du snakker om subscription-basert eller faktura-basert MRR\n"
+            "- Når du presenterer MRR-tall, spesifiser kilden: '(fra Subscriptions)' eller '(fra Fakturaer)'\n\n"
         )
 
         # Build conversation history string for GPT-5

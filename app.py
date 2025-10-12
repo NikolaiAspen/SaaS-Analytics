@@ -8,14 +8,174 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional
 from pydantic import BaseModel
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 # Reload: database column added to data/app.db
 
 from config import settings
 from database import init_db, get_session
-from services import ZohoClient, MetricsCalculator, AnalysisService, ZohoReportImporter, InvoiceService
+from services import ZohoClient, MetricsCalculator, AnalysisService, ZohoReportImporter, InvoiceService, InvoiceSyncService
 from models.subscription import Subscription, MetricsSnapshot, SyncStatus, MonthlyMRRSnapshot
 from models.invoice import Invoice, InvoiceLineItem, InvoiceMRRSnapshot
 from auth import verify_credentials
+
+# Global scheduler instance
+scheduler = AsyncIOScheduler()
+
+
+async def auto_sync_job():
+    """
+    Automatic daily sync job
+    Runs subscriptions and invoices sync
+    """
+    print("\n" + "="*80)
+    print(f"[AUTO SYNC] STARTED at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*80)
+
+    try:
+        from database import async_session_maker
+
+        async with async_session_maker() as session:
+            # Initialize clients
+            zoho = ZohoClient(
+                client_id=settings.zoho_client_id,
+                client_secret=settings.zoho_client_secret,
+                refresh_token=settings.zoho_refresh_token,
+                org_id=settings.zoho_org_id,
+                base_url=settings.zoho_base
+            )
+
+            # 1. Sync subscriptions (incremental)
+            print("\n[SUBSCRIPTIONS] Syncing...")
+            from sqlalchemy import select, desc
+            stmt = select(SyncStatus).where(SyncStatus.success == True).order_by(desc(SyncStatus.last_sync_time)).limit(1)
+            result = await session.execute(stmt)
+            last_sync = result.scalar_one_or_none()
+
+            last_modified_time = None
+            if last_sync:
+                last_modified_time = last_sync.last_sync_time.strftime("%Y-%m-%dT%H:%M:%S")
+                print(f"  Incremental sync since {last_modified_time}")
+
+            zoho_subs = await zoho.get_all_subscriptions(last_modified_time=last_modified_time)
+
+            synced_count = 0
+            for sub_data in zoho_subs:
+                # (Same subscription sync logic as in the endpoint)
+                def parse_date(date_value):
+                    if not date_value:
+                        return None
+                    try:
+                        if isinstance(date_value, datetime):
+                            return date_value.replace(tzinfo=None)
+                        date_str = str(date_value).strip()
+                        if "T" in date_str:
+                            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                            return dt.replace(tzinfo=None)
+                        else:
+                            from dateutil import parser
+                            dt = parser.parse(date_str)
+                            return dt.replace(tzinfo=None)
+                    except Exception as e:
+                        print(f"Warning: Failed to parse date '{date_value}': {e}")
+                        return None
+
+                created_time = parse_date(sub_data.get("created_time"))
+                activated_at = parse_date(sub_data.get("activated_at"))
+                cancelled_at = parse_date(sub_data.get("cancelled_at"))
+                expires_at = parse_date(sub_data.get("expires_at"))
+
+                if sub_data.get("status") == "non_renewing":
+                    scd_raw = sub_data.get("scheduled_cancellation_date")
+                    scheduled_cancellation = parse_date(scd_raw)
+                    if scheduled_cancellation:
+                        expires_at = scheduled_cancellation
+
+                vessel_name = None
+                call_sign = None
+                custom_fields = sub_data.get("custom_fields", [])
+                for field in custom_fields:
+                    label = field.get("label", "")
+                    if label == "Fartøy" or field.get("customfield_id") == "Fartøy":
+                        vessel_name = field.get("value")
+                    elif label in ["Kallesignal", "Radiokallesignal"] or field.get("customfield_id") in ["Kallesignal", "Radiokallesignal"]:
+                        call_sign = field.get("value")
+
+                subscription = await session.get(Subscription, sub_data["subscription_id"])
+
+                if subscription:
+                    subscription.customer_id = sub_data.get("customer_id", "")
+                    subscription.customer_name = sub_data.get("customer_name", "")
+                    subscription.plan_code = sub_data.get("plan_code", "")
+                    subscription.plan_name = sub_data.get("plan_name", "")
+                    subscription.status = sub_data.get("status", "")
+                    subscription.amount = float(sub_data.get("amount", 0))
+                    subscription.currency_code = sub_data.get("currency_code", "NOK")
+                    subscription.interval = sub_data.get("interval_unit", "months")
+                    subscription.interval_unit = int(sub_data.get("interval", 1))
+                    subscription.vessel_name = vessel_name
+                    subscription.call_sign = call_sign
+                    subscription.created_time = created_time
+                    subscription.activated_at = activated_at
+                    subscription.cancelled_at = cancelled_at
+                    subscription.expires_at = expires_at
+                    subscription.last_synced = datetime.utcnow()
+                else:
+                    subscription = Subscription(
+                        id=sub_data["subscription_id"],
+                        customer_id=sub_data.get("customer_id", ""),
+                        customer_name=sub_data.get("customer_name", ""),
+                        plan_code=sub_data.get("plan_code", ""),
+                        plan_name=sub_data.get("plan_name", ""),
+                        status=sub_data.get("status", ""),
+                        amount=float(sub_data.get("amount", 0)),
+                        currency_code=sub_data.get("currency_code", "NOK"),
+                        interval=sub_data.get("interval_unit", "months"),
+                        interval_unit=int(sub_data.get("interval", 1)),
+                        vessel_name=vessel_name,
+                        call_sign=call_sign,
+                        created_time=created_time,
+                        activated_at=activated_at,
+                        cancelled_at=cancelled_at,
+                        expires_at=expires_at,
+                    )
+                    session.add(subscription)
+
+                synced_count += 1
+
+            # Save sync status
+            sync_status = SyncStatus(
+                last_sync_time=datetime.utcnow(),
+                subscriptions_synced=synced_count,
+                success=True,
+            )
+            session.add(sync_status)
+            await session.commit()
+
+            print(f"  [OK] Synced {synced_count} subscriptions")
+
+            # Update snapshots
+            calculator = MetricsCalculator(session)
+            current_month = datetime.utcnow().strftime("%Y-%m")
+            await calculator.save_monthly_snapshot(current_month, datetime.utcnow())
+            print(f"  [OK] Updated snapshot for {current_month}")
+
+            # 2. Sync invoices (last 7 days)
+            print("\n[INVOICES] Syncing...")
+            invoice_sync_service = InvoiceSyncService(session, zoho)
+            since = datetime.utcnow() - timedelta(days=7)
+            invoice_stats = await invoice_sync_service.sync_incremental(since=since)
+
+            print(f"  [OK] Synced {invoice_stats['invoices_synced']} invoices, {invoice_stats['creditnotes_synced']} credit notes")
+
+            print("\n[AUTO SYNC] COMPLETED SUCCESSFULLY")
+            print("="*80 + "\n")
+
+    except Exception as e:
+        print(f"\n[ERROR] AUTO SYNC FAILED: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        print("="*80 + "\n")
 
 
 @asynccontextmanager
@@ -23,9 +183,23 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     await init_db()
+
+    # Start scheduler with daily sync at 08:00
+    scheduler.add_job(
+        auto_sync_job,
+        trigger=CronTrigger(hour=8, minute=0),  # 08:00 every day
+        id='daily_sync',
+        name='Daily Zoho Sync at 08:00',
+        replace_existing=True
+    )
+    scheduler.start()
+    print("[SCHEDULER] Started - Daily sync at 08:00")
+
     yield
+
     # Shutdown
-    pass
+    scheduler.shutdown()
+    print("[SCHEDULER] Stopped")
 
 
 app = FastAPI(
@@ -311,12 +485,31 @@ async def sync_subscriptions(
             except Exception as e:
                 print(f"Warning: Failed to save monthly snapshot: {e}")
 
+        # Sync invoices (incremental by default - last 7 days)
+        print("\n=== Syncing invoices ===")
+        invoice_sync_service = InvoiceSyncService(session, zoho)
+
+        # For incremental sync, only fetch last 7 days
+        # For full sync, fetch last 60 days (to avoid API limits)
+        if last_modified_time:
+            since = datetime.utcnow() - timedelta(days=7)
+            print(f"Syncing invoices modified since {since}")
+        else:
+            since = datetime.utcnow() - timedelta(days=60)
+            print(f"Full sync: Fetching invoices from last 60 days ({since})")
+
+        invoice_stats = await invoice_sync_service.sync_incremental(since=since)
+
+        print(f"Invoice sync complete: {invoice_stats['invoices_synced']} invoices, {invoice_stats['creditnotes_synced']} credit notes")
+
         sync_type = "incremental" if last_modified_time else "full"
         return {
             "status": "success",
             "sync_type": sync_type,
             "synced_count": synced_count,
-            "message": f"Successfully synced {synced_count} subscriptions ({sync_type} sync). Historical snapshots generated.",
+            "invoices_synced": invoice_stats['invoices_synced'],
+            "creditnotes_synced": invoice_stats['creditnotes_synced'],
+            "message": f"Successfully synced {synced_count} subscriptions, {invoice_stats['invoices_synced']} invoices, and {invoice_stats['creditnotes_synced']} credit notes ({sync_type} sync).",
         }
 
     except Exception as e:
@@ -1669,7 +1862,20 @@ async def ask_niko_comprehensive(
         except Exception as e:
             print(f"Could not load customer summary: {e}")
 
-        # Ask Niko with full context (inkluderer nå hele databasen)
+        # Get gap analysis (specific customers and vessels causing MRR gap)
+        gap_analysis = None
+        try:
+            from services.invoice import InvoiceService
+            from datetime import datetime
+
+            invoice_service = InvoiceService(session)
+            current_month = datetime.utcnow().strftime("%Y-%m")
+            gap_analysis = await invoice_service.analyze_mrr_gap(current_month)
+            print(f"Gap analysis: {gap_analysis.get('customers_without_subscriptions', 0)} customers without subs, {gap_analysis.get('total_gap_mrr', 0):,.0f} kr gap")
+        except Exception as e:
+            print(f"Could not load gap analysis: {e}")
+
+        # Ask Niko with full context (inkluderer nå hele databasen + gap analyse)
         answer = await analysis_service.ask_comprehensive(
             question=request.question,
             subscription_metrics=subscription_metrics,
@@ -1680,6 +1886,7 @@ async def ask_niko_comprehensive(
             new_customer_details=new_customer_details,
             all_subscriptions=all_subscriptions,
             customer_summary=customer_summary,
+            gap_analysis=gap_analysis,
             conversation_history=request.conversation_history
         )
 
@@ -3220,6 +3427,364 @@ async def version():
         "timezone_fix": fix_status,
         "timestamp": datetime.utcnow().isoformat(),
     }
+
+
+# =============================================================================
+# ADMIN - USER MANAGEMENT ENDPOINTS
+# =============================================================================
+
+@app.get("/api/admin/users-page", response_class=HTMLResponse)
+async def admin_users_page(request: Request):
+    """Admin users management page"""
+    return templates.TemplateResponse("admin_users.html", {"request": request})
+
+
+@app.get("/api/admin/versions-page", response_class=HTMLResponse)
+async def admin_versions_page(request: Request):
+    """Admin versions management page"""
+    return templates.TemplateResponse("admin_versions.html", {"request": request})
+
+
+class UserCreate(BaseModel):
+    """Schema for creating a new user"""
+    email: str
+    password: str
+    full_name: Optional[str] = None
+    role: str = "user"
+    is_active: bool = True
+    receive_notifications: bool = True
+
+
+class UserUpdate(BaseModel):
+    """Schema for updating a user"""
+    email: Optional[str] = None
+    password: Optional[str] = None
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    receive_notifications: Optional[bool] = None
+
+
+class VersionCreate(BaseModel):
+    """Schema for creating a new version"""
+    version: str
+    release_notes: str
+
+
+@app.get("/api/admin/users")
+async def get_users(session: AsyncSession = Depends(get_session)):
+    """Get all users"""
+    from services import UserService
+
+    user_service = UserService(session)
+    users = await user_service.get_all_users()
+
+    return [
+        {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "is_active": user.is_active,
+            "receive_notifications": user.receive_notifications,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "last_login": user.last_login.isoformat() if user.last_login else None,
+        }
+        for user in users
+    ]
+
+
+@app.post("/api/admin/users")
+async def create_user(
+    user_data: UserCreate,
+    session: AsyncSession = Depends(get_session)
+):
+    """Create a new user and send welcome email"""
+    from services import UserService, EmailService
+
+    user_service = UserService(session)
+
+    try:
+        # Create user
+        user = await user_service.create_user(
+            email=user_data.email,
+            password=user_data.password,
+            full_name=user_data.full_name,
+            role=user_data.role,
+            is_active=user_data.is_active,
+            receive_notifications=user_data.receive_notifications
+        )
+
+        # Send welcome email if SMTP is configured
+        if settings.smtp_host and settings.smtp_username:
+            try:
+                email_service = EmailService(
+                    smtp_host=settings.smtp_host,
+                    smtp_port=settings.smtp_port,
+                    smtp_username=settings.smtp_username,
+                    smtp_password=settings.smtp_password,
+                    from_email=settings.smtp_from_email,
+                    from_name=settings.smtp_from_name
+                )
+
+                success = email_service.send_welcome_email(
+                    to_email=user.email,
+                    password=user_data.password
+                )
+
+                # Log email
+                await user_service.log_email(
+                    recipient_email=user.email,
+                    subject="Velkommen til SaaS Analytics",
+                    body=f"Welcome email sent to {user.email}",
+                    email_type="welcome",
+                    success=success
+                )
+            except Exception as e:
+                print(f"Failed to send welcome email: {str(e)}")
+
+        return {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "is_active": user.is_active,
+            "receive_notifications": user.receive_notifications,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/admin/users/{user_id}")
+async def update_user(
+    user_id: int,
+    user_data: UserUpdate,
+    session: AsyncSession = Depends(get_session)
+):
+    """Update a user"""
+    from services import UserService
+
+    user_service = UserService(session)
+
+    try:
+        user = await user_service.update_user(
+            user_id=user_id,
+            email=user_data.email,
+            full_name=user_data.full_name,
+            password=user_data.password,
+            role=user_data.role,
+            is_active=user_data.is_active,
+            receive_notifications=user_data.receive_notifications
+        )
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        return {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "is_active": user.is_active,
+            "receive_notifications": user.receive_notifications,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    session: AsyncSession = Depends(get_session)
+):
+    """Delete a user"""
+    from services import UserService
+
+    user_service = UserService(session)
+    success = await user_service.delete_user(user_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {"message": "User deleted successfully"}
+
+
+@app.get("/api/admin/versions")
+async def get_versions(session: AsyncSession = Depends(get_session)):
+    """Get all versions"""
+    from models.user import AppVersion
+    from sqlalchemy import select
+
+    result = await session.execute(
+        select(AppVersion).order_by(AppVersion.released_at.desc())
+    )
+    versions = result.scalars().all()
+
+    return [
+        {
+            "id": version.id,
+            "version": version.version,
+            "release_notes": version.release_notes,
+            "released_at": version.released_at.isoformat() if version.released_at else None,
+            "notifications_sent": version.notifications_sent,
+            "created_by": version.created_by,
+        }
+        for version in versions
+    ]
+
+
+@app.post("/api/admin/versions")
+async def create_version(
+    version_data: VersionCreate,
+    request: Request,
+    session: AsyncSession = Depends(get_session)
+):
+    """Create a new version and send notifications to users"""
+    from services import UserService, EmailService
+
+    user_service = UserService(session)
+
+    # Get admin email from Basic Auth header
+    admin_email = "admin"
+    try:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Basic "):
+            import base64
+            credentials_b64 = auth_header.split(" ")[1]
+            credentials_str = base64.b64decode(credentials_b64).decode("utf-8")
+            admin_email = credentials_str.split(":", 1)[0]
+    except:
+        pass
+
+    try:
+        # Create version
+        version = await user_service.create_version_release(
+            version=version_data.version,
+            release_notes=version_data.release_notes,
+            created_by=admin_email
+        )
+
+        # Send notifications if SMTP is configured
+        sent_count = 0
+        if settings.smtp_host and settings.smtp_username:
+            try:
+                email_service = EmailService(
+                    smtp_host=settings.smtp_host,
+                    smtp_port=settings.smtp_port,
+                    smtp_username=settings.smtp_username,
+                    smtp_password=settings.smtp_password,
+                    from_email=settings.smtp_from_email,
+                    from_name=settings.smtp_from_name
+                )
+
+                # Get all users with notifications enabled
+                users = await user_service.get_all_users()
+                active_users = [u for u in users if u.is_active and u.receive_notifications]
+
+                for user in active_users:
+                    try:
+                        success = email_service.send_version_release_notification(
+                            to_email=user.email,
+                            version=version_data.version,
+                            release_notes=version_data.release_notes
+                        )
+
+                        # Log email
+                        await user_service.log_email(
+                            recipient_email=user.email,
+                            subject=f"Ny versjon {version_data.version}",
+                            body=version_data.release_notes,
+                            email_type="version_release",
+                            success=success
+                        )
+
+                        if success:
+                            sent_count += 1
+                    except Exception as e:
+                        print(f"Failed to send notification to {user.email}: {str(e)}")
+
+                # Mark notifications as sent
+                version.notifications_sent = True
+                await session.commit()
+
+            except Exception as e:
+                print(f"Failed to send notifications: {str(e)}")
+
+        return {
+            "id": version.id,
+            "version": version.version,
+            "release_notes": version.release_notes,
+            "notifications_sent": version.notifications_sent,
+            "sent_count": sent_count
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/admin/versions/{version}/notify")
+async def send_version_notifications(
+    version: str,
+    session: AsyncSession = Depends(get_session)
+):
+    """Send notifications for an existing version"""
+    from services import UserService, EmailService
+    from models.user import AppVersion
+    from sqlalchemy import select
+
+    # Get version
+    result = await session.execute(
+        select(AppVersion).where(AppVersion.version == version)
+    )
+    version_obj = result.scalar_one_or_none()
+
+    if not version_obj:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    if not settings.smtp_host or not settings.smtp_username:
+        raise HTTPException(status_code=400, detail="SMTP not configured")
+
+    user_service = UserService(session)
+    email_service = EmailService(
+        smtp_host=settings.smtp_host,
+        smtp_port=settings.smtp_port,
+        smtp_username=settings.smtp_username,
+        smtp_password=settings.smtp_password,
+        from_email=settings.smtp_from_email,
+        from_name=settings.smtp_from_name
+    )
+
+    # Get all users with notifications enabled
+    users = await user_service.get_all_users()
+    active_users = [u for u in users if u.is_active and u.receive_notifications]
+
+    sent_count = 0
+    for user in active_users:
+        try:
+            success = email_service.send_version_release_notification(
+                to_email=user.email,
+                version=version_obj.version,
+                release_notes=version_obj.release_notes
+            )
+
+            # Log email
+            await user_service.log_email(
+                recipient_email=user.email,
+                subject=f"Ny versjon {version_obj.version}",
+                body=version_obj.release_notes,
+                email_type="version_release",
+                success=success
+            )
+
+            if success:
+                sent_count += 1
+        except Exception as e:
+            print(f"Failed to send notification to {user.email}: {str(e)}")
+
+    # Mark notifications as sent
+    version_obj.notifications_sent = True
+    await session.commit()
+
+    return {"sent_count": sent_count}
 
 
 if __name__ == "__main__":

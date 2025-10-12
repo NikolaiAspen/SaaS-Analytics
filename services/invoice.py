@@ -378,3 +378,187 @@ class InvoiceService:
             prev_customers = snapshot.total_customers
 
         return trends
+
+    async def analyze_mrr_gap(self, target_month: str) -> Dict:
+        """
+        Analyze the gap between subscription-based and invoice-based MRR
+
+        Returns detailed breakdown of:
+        - Customers with invoices but no subscriptions
+        - Customers with subscriptions but no invoices
+        - Matching statistics (call sign, vessel)
+
+        Args:
+            target_month: Month in YYYY-MM format (e.g., "2025-10")
+
+        Returns:
+            Dict with gap analysis details
+        """
+        from models.subscription import Subscription
+        from collections import defaultdict
+
+        # Parse target month
+        year, month = map(int, target_month.split('-'))
+        target_month_start = datetime(year, month, 1)
+
+        # Get last day of month
+        if month == 12:
+            target_month_end = datetime(year + 1, 1, 1) - relativedelta(days=1)
+        else:
+            target_month_end = datetime(year, month + 1, 1) - relativedelta(days=1)
+
+        # Get all active subscriptions
+        stmt = select(Subscription).where(Subscription.status.in_(['live', 'non_renewing']))
+        result = await self.session.execute(stmt)
+        subscriptions = result.scalars().all()
+
+        # Build subscription customer lookup by name, call sign, and vessel
+        subscription_customers = set()
+        sub_by_call_sign = {}
+        sub_by_vessel = {}
+
+        for sub in subscriptions:
+            subscription_customers.add(sub.customer_name)
+
+            if sub.call_sign:
+                call_sign_clean = sub.call_sign.strip().upper()
+                if call_sign_clean not in sub_by_call_sign:
+                    sub_by_call_sign[call_sign_clean] = []
+                sub_by_call_sign[call_sign_clean].append(sub)
+
+            if sub.vessel_name:
+                vessel_clean = sub.vessel_name.strip().upper()
+                if vessel_clean not in sub_by_vessel:
+                    sub_by_vessel[vessel_clean] = []
+                sub_by_vessel[vessel_clean].append(sub)
+
+        # Get all invoice line items for target month
+        stmt = select(InvoiceLineItem, Invoice).join(
+            Invoice, InvoiceLineItem.invoice_id == Invoice.id
+        ).where(
+            InvoiceLineItem.period_start_date <= target_month_end,
+            InvoiceLineItem.period_end_date >= target_month_start
+        )
+        result = await self.session.execute(stmt)
+        invoice_rows = result.all()
+
+        # Analyze customers with invoices
+        invoice_customers = defaultdict(lambda: {
+            'total_mrr': 0,
+            'vessels': set(),
+            'call_signs': set(),
+            'line_items': []
+        })
+
+        for line_item, invoice in invoice_rows:
+            customer_name = invoice.customer_name
+            mrr = line_item.mrr_per_month or 0
+
+            invoice_customers[customer_name]['total_mrr'] += mrr
+
+            if line_item.vessel_name:
+                invoice_customers[customer_name]['vessels'].add(line_item.vessel_name.strip())
+            if line_item.call_sign:
+                invoice_customers[customer_name]['call_signs'].add(line_item.call_sign.strip())
+
+            invoice_customers[customer_name]['line_items'].append({
+                'item_name': line_item.name,
+                'vessel': line_item.vessel_name or '',
+                'call_sign': line_item.call_sign or '',
+                'mrr': mrr
+            })
+
+        # Find customers with invoices but no subscriptions
+        customers_without_subs = []
+        matched_by_call_sign = 0
+        matched_by_vessel = 0
+        unmatched = 0
+
+        total_gap_mrr = 0
+        matched_gap_mrr = 0
+        unmatched_gap_mrr = 0
+
+        for customer_name, customer_data in invoice_customers.items():
+            if customer_name not in subscription_customers:
+                # Check if this customer matches by call sign or vessel
+                matches = []
+
+                for call_sign in customer_data['call_signs']:
+                    call_sign_upper = call_sign.upper()
+                    if call_sign_upper in sub_by_call_sign:
+                        for sub in sub_by_call_sign[call_sign_upper]:
+                            if sub.customer_name not in matches:
+                                matches.append({
+                                    'type': 'call_sign',
+                                    'value': call_sign,
+                                    'subscription_customer': sub.customer_name
+                                })
+
+                for vessel in customer_data['vessels']:
+                    vessel_upper = vessel.upper()
+                    if vessel_upper in sub_by_vessel:
+                        for sub in sub_by_vessel[vessel_upper]:
+                            if sub.customer_name not in [m.get('subscription_customer') for m in matches]:
+                                matches.append({
+                                    'type': 'vessel',
+                                    'value': vessel,
+                                    'subscription_customer': sub.customer_name
+                                })
+
+                customer_mrr = customer_data['total_mrr']
+                total_gap_mrr += customer_mrr
+
+                if matches:
+                    matched_gap_mrr += customer_mrr
+                    if any(m['type'] == 'call_sign' for m in matches):
+                        matched_by_call_sign += 1
+                    elif any(m['type'] == 'vessel' for m in matches):
+                        matched_by_vessel += 1
+                else:
+                    unmatched += 1
+                    unmatched_gap_mrr += customer_mrr
+
+                customers_without_subs.append({
+                    'customer_name': customer_name,
+                    'mrr': customer_mrr,
+                    'vessels': list(customer_data['vessels']),
+                    'call_signs': list(customer_data['call_signs']),
+                    'matches': matches,
+                    'line_items': customer_data['line_items']
+                })
+
+        # Sort by MRR descending
+        customers_without_subs.sort(key=lambda x: x['mrr'], reverse=True)
+
+        # Find customers with subscriptions but no invoices (rare, but possible)
+        customers_without_invoices = []
+        invoice_customer_names = set(invoice_customers.keys())
+
+        for sub in subscriptions:
+            if sub.customer_name not in invoice_customer_names:
+                interval_months = sub.interval if sub.interval_unit == 'months' else (12 if sub.interval_unit == 'years' else 1)
+                mrr = (sub.amount / 1.25) / interval_months if sub.amount else 0
+
+                customers_without_invoices.append({
+                    'customer_name': sub.customer_name,
+                    'mrr': mrr,
+                    'plan_name': sub.plan_name,
+                    'vessel_name': sub.vessel_name or '',
+                    'call_sign': sub.call_sign or ''
+                })
+
+        customers_without_invoices.sort(key=lambda x: x['mrr'], reverse=True)
+
+        return {
+            'target_month': target_month,
+            'total_gap_mrr': total_gap_mrr,
+            'matched_gap_mrr': matched_gap_mrr,
+            'unmatched_gap_mrr': unmatched_gap_mrr,
+            'customers_without_subscriptions': len(customers_without_subs),
+            'customers_without_invoices': len(customers_without_invoices),
+            'matched_by_call_sign': matched_by_call_sign,
+            'matched_by_vessel': matched_by_vessel,
+            'unmatched_customers': unmatched,
+            'customers_without_subs_list': customers_without_subs[:30],  # Top 30 by MRR
+            'customers_without_invoices_list': customers_without_invoices[:30],  # Top 30 by MRR
+        }
