@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="no" style="background: #0b1020;">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Versjonshåndtering - SaaS Analytics</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+            --purple: #667eea;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        {% include 'sidebar_styles.html' %}
+
+        .container {
+            margin-left: 240px;
+            padding: 20px;
+            max-width: 1400px;
+        }
+
+        header {
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 30px;
+            margin-bottom: 20px;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--ink);
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--purple) 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-success {
+            background: var(--good);
+            color: #0b1020;
+        }
+
+        .btn-secondary {
+            background: rgba(159, 177, 255, 0.1);
+            color: var(--muted);
+            border: 1px solid rgba(159, 177, 255, 0.2);
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .version-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .version-card {
+            background: rgba(15, 21, 48, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .version-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 12px;
+        }
+
+        .version-number {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--purple);
+        }
+
+        .version-date {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .version-notes {
+            color: var(--ink);
+            line-height: 1.6;
+            margin-bottom: 12px;
+            white-space: pre-wrap;
+        }
+
+        .version-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .version-meta {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-sent {
+            background: rgba(61, 220, 151, 0.2);
+            color: var(--good);
+        }
+
+        .badge-pending {
+            background: rgba(255, 209, 102, 0.2);
+            color: var(--warn);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+        }
+
+        .modal-content {
+            background: var(--panel);
+            margin: 50px auto;
+            padding: 30px;
+            border-radius: 18px;
+            max-width: 600px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--ink);
+        }
+
+        .close {
+            color: var(--muted);
+            font-size: 28px;
+            font-weight: 300;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .close:hover {
+            color: var(--ink);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .form-input,
+        .form-textarea {
+            width: 100%;
+            padding: 12px;
+            background: rgba(15, 21, 48, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: var(--ink);
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .form-input:focus,
+        .form-textarea:focus {
+            outline: none;
+            border-color: var(--purple);
+            background: rgba(15, 21, 48, 0.6);
+        }
+
+        .form-textarea {
+            min-height: 200px;
+            resize: vertical;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 25px;
+        }
+
+        .alert {
+            padding: 14px 18px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .alert-success {
+            background: rgba(61, 220, 151, 0.15);
+            color: var(--good);
+            border-left: 4px solid var(--good);
+        }
+
+        .alert-error {
+            background: rgba(255, 107, 107, 0.15);
+            color: var(--bad);
+            border-left: 4px solid var(--bad);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin-left: 0;
+            }
+
+            .sidebar {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    {% set active_page = 'admin_versions' %}
+    {% include 'sidebar.html' %}
+
+    <div class="container">
+        <header>
+            <h1>🚀 Versjonshåndtering</h1>
+            <div class="subtitle">Opprett nye versjoner og send varsler til brukere</div>
+        </header>
+
+        <div id="alertContainer"></div>
+
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">Versjoner</div>
+                <button class="btn btn-primary" onclick="openCreateVersionModal()">
+                    <span>➕</span>
+                    <span>Opprett ny versjon</span>
+                </button>
+            </div>
+
+            <div id="versionsList" class="version-list">
+                <!-- Versions will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Version Modal -->
+    <div id="versionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Opprett ny versjon</h2>
+                <span class="close" onclick="closeVersionModal()">&times;</span>
+            </div>
+
+            <form id="versionForm" onsubmit="createVersion(event)">
+                <div class="form-group">
+                    <label class="form-label" for="version">Versjonsnummer *</label>
+                    <input type="text" id="version" class="form-input" placeholder="f.eks. 1.2.0" required>
+                    <div style="font-size: 12px; color: var(--muted); margin-top: 6px;">
+                        Bruk semantisk versjonering: MAJOR.MINOR.PATCH
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="releaseNotes">Hva er nytt? *</label>
+                    <textarea id="releaseNotes" class="form-textarea" placeholder="Beskriv endringer i denne versjonen..." required></textarea>
+                    <div style="font-size: 12px; color: var(--muted); margin-top: 6px;">
+                        Skriv på norsk. Dette vil bli sendt til alle brukere med e-postvarsling aktivert.
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success" style="flex: 1;">Opprett og send varsler</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeVersionModal()">Avbryt</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let versions = [];
+
+        // Load versions on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadVersions();
+        });
+
+        async function loadVersions() {
+            try {
+                const response = await fetch('/api/admin/versions', {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to load versions');
+                }
+
+                versions = await response.json();
+                renderVersionsList();
+            } catch (error) {
+                showAlert('Kunne ikke laste versjoner: ' + error.message, 'error');
+            }
+        }
+
+        function renderVersionsList() {
+            const container = document.getElementById('versionsList');
+
+            if (versions.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 60px 20px; color: var(--muted);">
+                        <div style="font-size: 48px; margin-bottom: 16px;">🚀</div>
+                        <div>Ingen versjoner ennå. Opprett din første versjon!</div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = versions.map(version => {
+                const releaseDate = new Date(version.released_at);
+                const formattedDate = releaseDate.toLocaleDateString('no', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                return `
+                    <div class="version-card">
+                        <div class="version-header">
+                            <div>
+                                <div class="version-number">v${version.version}</div>
+                                <div class="version-date">${formattedDate}</div>
+                            </div>
+                            <span class="badge badge-${version.notifications_sent ? 'sent' : 'pending'}">
+                                ${version.notifications_sent ? '✅ Varsler sendt' : '⏳ Venter'}
+                            </span>
+                        </div>
+                        <div class="version-notes">${version.release_notes}</div>
+                        <div class="version-footer">
+                            <div class="version-meta">
+                                Opprettet av ${version.created_by || 'Admin'}
+                            </div>
+                            ${!version.notifications_sent ? `
+                                <button class="btn btn-primary btn-small" onclick="sendNotifications('${version.version}')">
+                                    📧 Send varsler nå
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function openCreateVersionModal() {
+            document.getElementById('versionForm').reset();
+            document.getElementById('versionModal').style.display = 'block';
+        }
+
+        function closeVersionModal() {
+            document.getElementById('versionModal').style.display = 'none';
+        }
+
+        async function createVersion(event) {
+            event.preventDefault();
+
+            const versionData = {
+                version: document.getElementById('version').value,
+                release_notes: document.getElementById('releaseNotes').value
+            };
+
+            try {
+                const response = await fetch('/api/admin/versions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(versionData)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to create version');
+                }
+
+                const result = await response.json();
+                showAlert('Versjon opprettet! Varsler sendes nå...', 'success');
+                closeVersionModal();
+                loadVersions();
+            } catch (error) {
+                showAlert('Feil: ' + error.message, 'error');
+            }
+        }
+
+        async function sendNotifications(version) {
+            if (!confirm(`Send e-postvarsler til alle brukere om versjon ${version}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/admin/versions/${version}/notify`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to send notifications');
+                }
+
+                const result = await response.json();
+                showAlert(`Varsler sendt til ${result.sent_count} brukere!`, 'success');
+                loadVersions();
+            } catch (error) {
+                showAlert('Kunne ikke sende varsler: ' + error.message, 'error');
+            }
+        }
+
+        function showAlert(message, type) {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertClass = type === 'error' ? 'alert-error' : 'alert-success';
+
+            const alert = document.createElement('div');
+            alert.className = `alert ${alertClass}`;
+            alert.textContent = message;
+
+            alertContainer.appendChild(alert);
+
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('versionModal');
+            if (event.target === modal) {
+                closeVersionModal();
+            }
+        }
+    </script>
+</body>
+</html>
