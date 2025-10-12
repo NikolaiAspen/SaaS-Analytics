@@ -479,15 +479,19 @@ class InvoiceService:
 
             invoice_customers[customer_name]['total_mrr'] += mrr
 
-            if line_item.vessel_name:
-                invoice_customers[customer_name]['vessels'].add(line_item.vessel_name.strip())
-            if line_item.call_sign:
-                invoice_customers[customer_name]['call_signs'].add(line_item.call_sign.strip())
+            # Use getattr for optional columns that might not exist in Railway PostgreSQL
+            vessel_name = getattr(line_item, 'vessel_name', None)
+            call_sign = getattr(line_item, 'call_sign', None)
+
+            if vessel_name:
+                invoice_customers[customer_name]['vessels'].add(vessel_name.strip())
+            if call_sign:
+                invoice_customers[customer_name]['call_signs'].add(call_sign.strip())
 
             invoice_customers[customer_name]['line_items'].append({
                 'item_name': line_item.name,
-                'vessel': line_item.vessel_name or '',
-                'call_sign': line_item.call_sign or '',
+                'vessel': vessel_name or '',
+                'call_sign': call_sign or '',
                 'mrr': mrr
             })
 
