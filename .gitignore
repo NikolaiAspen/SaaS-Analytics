@@ -74,3 +74,13 @@ htmlcov/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Excel data sources and analysis outputs
+excel/*.xlsx
+excel/*.csv
+*.xlsx
+*.csv
+~$*.xlsx
+
+# Claude local settings
+.claude/settings.local.json

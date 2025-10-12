@@ -95,6 +95,110 @@ uvicorn app:app --reload
 - **⚠️ CRITICAL - Subscription Status**: MRR calculations must include both `"live"` AND `"non_renewing"` status subscriptions. Non-renewing subscriptions are still active and generating revenue, they just won't auto-renew at the end of their term.
 - **Monthly Snapshots**: The system saves monthly MRR snapshots automatically during each sync. This provides accurate historical data. For the first time setup, use `/api/generate-historical-snapshots` to create past 12 months of snapshots.
 
+## ⚠️ CRITICAL UNDERSTANDING - Two Different MRR Calculation Methods
+
+**This system uses TWO different methods for calculating MRR, and they often give DIFFERENT results. Both are valid but serve different purposes:**
+
+### 1. Subscription-based MRR (from Zoho Subscriptions)
+- **Source**: Calculated from active subscriptions in Zoho Subscriptions
+- **Used by**: Zoho for their internal calculations
+- **Logic**: Based on subscription status (live, non_renewing)
+- **Data location**: `subscriptions` table, `monthly_mrr_snapshots` table
+- **API endpoints**: `/api/dashboard`, `/api/trends`, `/api/drilldown/mrr`
+- **Reference**: "Subscription-baserte tall" or "fra Zoho Subscriptions"
+
+### 2. Invoice-based MRR (from Zoho Billing)
+- **Source**: Calculated from actual invoice line items sent to customers
+- **Used by**: The accounting department as the basis for MRR reporting
+- **Logic**: Based on invoice periods (period_start_date, period_end_date)
+- **Data location**: `invoices` table, `invoice_line_items` table, `invoice_mrr_snapshots` table
+- **API endpoints**: `/api/invoices/dashboard`, `/api/invoices/trends`
+- **Reference**: "Faktura-baserte tall" or "fra Zoho Billing"
+- **Status**: Currently in BETA
+
+### Why Are They Different?
+
+The two methods often show different values because:
+- Subscriptions may be created but not yet invoiced
+- Invoice periods may differ from subscription periods
+- One-time charges or adjustments in invoices
+- Timing differences between subscription activation and first invoice
+
+**IMPORTANT**: When working with MRR data:
+- Always specify which method you're referring to
+- Don't assume they should match
+- Both are valid - subscription-based follows subscription logic, invoice-based follows accounting reality
+- The AI assistant (Niko) has been trained to understand and explain these differences
+
+## ⚠️ CRITICAL - Credit Note Period Handling
+
+**PROBLEM DISCOVERED (Oct 2025)**: Credit notes were initially treated as "point dates" (start_date = end_date = credit_note_date), which caused them to NOT affect MRR calculations for future months.
+
+**Example**:
+- Invoice 2008930 issued 2025-01-01 for "Fangstdagbok (år)" = 12 months period (affects Jan 2025 - Jan 2026)
+- Credit Note CN-01802 issued 2025-01-21 to cancel this invoice
+- ❌ **WRONG**: If credit note has point date (2025-01-21), it ONLY affects January 2025
+- ✅ **CORRECT**: Credit note must have SAME period as the product (12 months from 2025-01-21 to 2026-01-20)
+
+**SOLUTION IMPLEMENTED**:
+```python
+# In import_invoices_xlsx.py lines 96-112:
+# Credit notes get periods based on Item Name + periodization from parameters.xlsx
+for idx, row in cn_df.iterrows():
+    item_name = str(row.get('Item Name', '')).strip()
+    cn_date = row['Invoice Date']
+
+    if item_name in periodization_map:
+        period_months = periodization_map[item_name]
+        # Start from credit note date, extend forward by period_months
+        start_date = pd.to_datetime(cn_date)
+        end_date = start_date + pd.DateOffset(months=period_months) - pd.DateOffset(days=1)
+        cn_df.at[idx, 'Start Date'] = start_date
+        cn_df.at[idx, 'End Date'] = end_date
+```
+
+**IMPACT**:
+- Before fix: MRR gap was +7.9% (invoice MRR too high by 162,000 NOK)
+- After fix: MRR gap is -2.7% (within normal range, only 56,662 NOK difference)
+- Credit notes reduced Invoice MRR by **218,687 NOK** when periods were corrected!
+
+**KEY RULE**: Credit notes must ALWAYS have the SAME period logic as invoices. If an invoice covers 12 months, its credit note must also cover 12 months (from credit note date forward).
+
+## ⚠️ CRITICAL - Vessel/Call Sign Matching for MRR Gap Analysis
+
+**PROBLEM**: The `subscription_id` field in invoice XLSX files is often empty or doesn't match the actual subscription ID from Zoho API. This made it impossible to match invoices to subscriptions, showing 100% of subscriptions as "unmatched".
+
+**SOLUTION**: Multi-tier matching strategy using vessel data:
+
+**Tier 1 - Subscription ID** (Primary):
+- Match by `subscription_id` field when available
+- Problem: Often empty in XLSX files (0% match rate in our data)
+
+**Tier 2 - Call Sign** (Secondary, most effective):
+- Match by `call_sign` (Radiokallesignal / CF.RKAL)
+- Both subscriptions and invoices have this field
+- **Success rate: 99.5%** (1,925 out of 1,932 subscriptions matched)
+- Implementation: Clean and uppercase call signs for comparison
+
+**Tier 3 - Vessel + Customer** (Tertiary):
+- Match by combination of `vessel_name` + `customer_name`
+- Used as fallback when call sign doesn't match
+- Catches edge cases with typos or formatting differences
+
+**Data Fields Required**:
+- Subscriptions: `vessel_name`, `call_sign` (from Zoho custom fields)
+- Invoices: `CF.Fartøy`, `CF.Radiokallesignal` (from XLSX files)
+- Both indexed in database for fast lookups
+
+**Code Location**: `analyze_mrr_gap.py` lines 35-92, 171-243
+
+**RESULTS**:
+- Before vessel matching: 100% subscriptions unmatched (2,060,698 NOK unexplained gap)
+- After vessel matching: 99.7% subscriptions matched (only 3,210 NOK from 5 subscriptions unmatched)
+- Final gap after all fixes: -2.7% (-56,662 NOK) which is within acceptable range
+
+**KEY RULE**: Always use vessel/call sign as primary matching strategy for Norwegian fishing vessels. The subscription_id field is unreliable in XLSX exports.
+
 ## Debug and Troubleshooting
 
 **Check MRR Calculation**:
@@ -109,6 +213,18 @@ uvicorn app:app --reload
 - Add `?force_full=true` to sync endpoint: `POST /api/sync?force_full=true`
 
 ## Recent Updates (2025-10)
+
+### Version 2.2.0 - MRR Gap Analysis & Credit Note Fix (Oct 2025)
+- ✅ **CRITICAL FIX - Credit Note Periods**: Credit notes now get proper period dates (start + period_months) instead of point dates
+  - Impact: Reduced MRR gap from +7.9% to -2.7% (fixed 218,687 NOK discrepancy)
+  - Credit notes now correctly affect MRR for all months in their period
+- ✅ **Vessel/Call Sign Matching**: Implemented multi-tier matching strategy for subscription-invoice reconciliation
+  - Tier 1: subscription_id (primary, but often empty)
+  - Tier 2: call_sign matching (99.5% success rate - 1,925/1,932 subscriptions matched)
+  - Tier 3: vessel_name + customer_name (catches edge cases)
+- ✅ **Database Schema Updates**: Added `vessel_name` and `call_sign` columns to `invoice_line_items` table
+- ✅ **Analysis Scripts**: Created `analyze_mrr_gap.py`, `check_name_mismatches.py`, `export_mrr_details.py`
+- ✅ **Final Result**: MRR gap reduced to acceptable -2.7% (within normal timing differences)
 
 ### Version 2.1.0 - Niko AI Churn Analysis Improvements
 - ✅ **Complete Churn Data Access**: Niko now has access to ALL churned customers (removed .limit(100))

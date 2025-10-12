@@ -15,13 +15,15 @@ class InvoiceService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    def parse_period_from_description(self, description: str) -> Tuple[Optional[datetime], Optional[datetime], int]:
+    def parse_period_from_description(self, description: str, invoice_date: Optional[datetime] = None) -> Tuple[Optional[datetime], Optional[datetime], int]:
         """
         Parse billing period from invoice line item description
 
         Supports formats:
         - Norwegian: "Gjelder perioden 10 Oct 2025 til 09 Nov 2025"
         - English: "Charges for this duration (from 10-October-2025 to 9-October-2026)"
+        - Norwegian alt: "Gjelder fra 1 januar - 31 desember 2022"
+        - Dot format: "01.01.22-31.01.22"
 
         Returns:
             Tuple of (start_date, end_date, months_count)
@@ -64,6 +66,36 @@ class InvoiceService:
 
                 return start_date, end_date, months
 
+            # Pattern 3: "Gjelder fra DD måned - DD måned YYYY"
+            pattern3 = r'fra\s+(\d{1,2}\s+\w+)\s*-\s*(\d{1,2}\s+\w+\s+\d{4})'
+            match = re.search(pattern3, description, re.IGNORECASE)
+
+            if match:
+                start_str_partial = match.group(1)  # e.g. "1 januar"
+                end_str = match.group(2)  # e.g. "31 desember 2022"
+
+                end_date = date_parser.parse(end_str, dayfirst=True)
+                # Add year from end_date to start_str
+                start_str = f"{start_str_partial} {end_date.year}"
+                start_date = date_parser.parse(start_str, dayfirst=True)
+
+                months = self._calculate_months_between(start_date, end_date)
+                return start_date, end_date, months
+
+            # Pattern 4: Dot format "DD.MM.YY-DD.MM.YY"
+            pattern4 = r'(\d{1,2}\.\d{1,2}\.\d{2,4})\s*-\s*(\d{1,2}\.\d{1,2}\.\d{2,4})'
+            match = re.search(pattern4, description, re.IGNORECASE)
+
+            if match:
+                start_str = match.group(1).replace('.', '-')
+                end_str = match.group(2).replace('.', '-')
+
+                start_date = date_parser.parse(start_str, dayfirst=True)
+                end_date = date_parser.parse(end_str, dayfirst=True)
+
+                months = self._calculate_months_between(start_date, end_date)
+                return start_date, end_date, months
+
         except Exception as e:
             print(f"Warning: Failed to parse period from description: {description}")
             print(f"  Error: {e}")
@@ -89,21 +121,80 @@ class InvoiceService:
         # Ensure at least 1 month
         return max(1, months)
 
+    def parse_period_from_name(self, name: str, invoice_date: Optional[datetime] = None) -> Tuple[Optional[datetime], Optional[datetime], int]:
+        """
+        Parse billing period from product name when description is missing
+
+        Supports formats:
+        - "(år)" or "(årlig)" → 12 months
+        - "(mnd)" or "(månedlig)" → 1 month
+
+        Args:
+            name: Product name (e.g., "Satellittabonnement (år)")
+            invoice_date: Invoice date to use as period start (if provided)
+
+        Returns:
+            Tuple of (start_date, end_date, months_count)
+        """
+        if not name:
+            return None, None, 1
+
+        name_lower = name.lower()
+
+        # Check for yearly indicators
+        if '(år)' in name_lower or '(årlig)' in name_lower or '(årig)' in name_lower:
+            months = 12
+        # Check for monthly indicators
+        elif '(mnd)' in name_lower or '(månedlig)' in name_lower or '(måned)' in name_lower:
+            months = 1
+        else:
+            # No period indicator found
+            return None, None, 1
+
+        # If we have invoice_date, calculate period dates
+        if invoice_date:
+            start_date = invoice_date
+            if months > 1:
+                # For multi-month periods (yearly, etc)
+                end_date = start_date + relativedelta(months=months, days=-1)
+            else:
+                # For monthly periods: same month as invoice
+                end_date = start_date + relativedelta(months=1, days=-1)
+            return start_date, end_date, months
+
+        # Return months count without dates
+        return None, None, months
+
     def calculate_mrr_from_line_item(self, line_item_data: Dict) -> Dict:
         """
         Calculate MRR from a single invoice line item
 
         Args:
-            line_item_data: Line item data from Zoho API
+            line_item_data: Line item data with keys:
+                - description: Line item description (may contain period dates)
+                - name: Product name (may contain period indicator like "(år)")
+                - price: Line item price (excluding tax)
+                - invoice_date: Invoice date (optional, used for calculating period dates from name)
 
         Returns:
             Dict with MRR calculation details
         """
         description = line_item_data.get("description", "")
+        name = line_item_data.get("name", "")
         price = float(line_item_data.get("price", 0))  # Excluding tax
+        invoice_date = line_item_data.get("invoice_date")
 
-        # Parse period from description
-        start_date, end_date, months = self.parse_period_from_description(description)
+        # Try parsing period from description first
+        start_date, end_date, months = self.parse_period_from_description(description, invoice_date)
+
+        # If description didn't provide dates, try parsing from name
+        if start_date is None and name:
+            start_date_from_name, end_date_from_name, months_from_name = self.parse_period_from_name(name, invoice_date)
+            # Use name-based parsing if it provides dates
+            if start_date_from_name is not None:
+                start_date = start_date_from_name
+                end_date = end_date_from_name
+                months = months_from_name
 
         # Calculate MRR per month
         mrr_per_month = price / months if months > 0 else price
@@ -278,6 +369,9 @@ class InvoiceService:
                 "mrr_change": mrr_change,
                 "mrr_change_pct": mrr_change_pct,
                 "customer_change": customer_change,
+                "active_lines": snapshot.active_lines,
+                "invoice_lines": snapshot.invoice_lines,
+                "creditnote_lines": snapshot.creditnote_lines,
             })
 
             prev_mrr = snapshot.mrr

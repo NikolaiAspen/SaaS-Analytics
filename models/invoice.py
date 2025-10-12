@@ -65,6 +65,10 @@ class InvoiceLineItem(Base):
     code = Column(String)  # Plan code (e.g., "ERSO15PM", "VMS14")
     unit = Column(String)  # "mnd", "år", "6mnd" - NOT reliable for period calculation
 
+    # Vessel info (for matching with subscriptions)
+    vessel_name = Column(String, index=True)  # CF.Fartøy from XLSX
+    call_sign = Column(String, index=True)  # CF.Radiokallesignal from XLSX
+
     # Pricing
     price = Column(Float, nullable=False)  # Excluding tax
     quantity = Column(Integer, default=1)
@@ -103,6 +107,11 @@ class InvoiceMRRSnapshot(Base):
     # MRR metrics
     mrr = Column(Float, nullable=False)  # Total MRR for this month from all invoice line items
     arr = Column(Float, nullable=False)  # ARR = MRR * 12
+
+    # Line item counts
+    active_lines = Column(Integer, default=0)  # Total active lines (invoices + credit notes)
+    invoice_lines = Column(Integer, default=0)  # Number of invoice lines
+    creditnote_lines = Column(Integer, default=0)  # Number of credit note lines
 
     # Customer metrics
     total_customers = Column(Integer, default=0)  # Unique customers with active MRR this month
