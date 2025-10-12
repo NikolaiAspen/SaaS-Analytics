@@ -1,5 +1,5 @@
 """
-Import invoice data from XLSX files (2024-2025)
+Import invoice data from Zoho CSV exports (FULL HISTORY)
 Uses parameters.xlsx mapping for periodization and hardware filtering
 """
 
@@ -11,11 +11,11 @@ from models.invoice import Invoice, InvoiceLineItem
 from sqlalchemy import delete
 
 
-async def import_from_xlsx():
-    """Import invoices from structured XLSX files using parameters mapping"""
+async def import_from_csv():
+    """Import invoices from Zoho CSV exports using parameters mapping"""
 
     print("="*80)
-    print("XLSX INVOICE IMPORT - 2024-2025 (WITH PARAMETERS MAPPING)")
+    print("ZOHO CSV INVOICE IMPORT - FULL HISTORY (WITH PARAMETERS MAPPING)")
     print("="*80)
 
     # Load parameters mapping
@@ -52,29 +52,23 @@ async def import_from_xlsx():
         print(f"      - {group}: {group_counts[group]} items")
     print(f"  [OK] All other revenue groups will be excluded")
 
-    # XLSX files covering full 2024-2025 period
-    xlsx_files = [
-        "c:/Users/nikolai/Code/Saas_analyse/excel/1jan2024-30jun.xlsx",
-        "c:/Users/nikolai/Code/Saas_analyse/excel/1jul2024-31dec.xlsx",
-        "c:/Users/nikolai/Code/Saas_analyse/excel/1jan2025-30april.xlsx",
-        "c:/Users/nikolai/Code/Saas_analyse/excel/1mai2025-12oct.xlsx",
-    ]
-
-    # Step 2: Load all xlsx data (invoices + credit notes)
-    print("\n[2] LOADING XLSX FILES")
+    # Step 2: Load CSV data from Zoho exports (invoices + credit notes)
+    print("\n[2] LOADING ZOHO CSV FILES")
     print("-"*80)
     all_data = []
 
-    # Load invoice files
-    for file in xlsx_files:
-        df = pd.read_excel(file)
-        df['transaction_type'] = 'invoice'
-        all_data.append(df)
-        print(f"  [OK] Loaded invoice file {file.split('/')[-1]}: {len(df)} lines")
+    # Load invoice file (complete Zoho export)
+    invoice_file = "c:/Users/nikolai/Downloads/Dualog Fisknett AS_2025-10-12/Invoice.csv"
+    print(f"  Loading {invoice_file}...")
+    inv_df = pd.read_csv(invoice_file, low_memory=False)
+    inv_df['transaction_type'] = 'invoice'
+    all_data.append(inv_df)
+    print(f"  [OK] Loaded invoice file: {len(inv_df)} lines")
 
     # Load credit note file
-    cn_file = "c:/Users/nikolai/Code/Saas_analyse/excel/Credit_Note.xlsx"
-    cn_df = pd.read_excel(cn_file)
+    cn_file = "c:/Users/nikolai/Downloads/Dualog Fisknett AS_2025-10-12/Credit_Note.csv"
+    print(f"  Loading {cn_file}...")
+    cn_df = pd.read_csv(cn_file, low_memory=False)
 
     # Map credit note columns to invoice format
     cn_df = cn_df.rename(columns={
@@ -144,23 +138,6 @@ async def import_from_xlsx():
     print(f"\n  Breakdown:")
     print(combined_df['Line Item Type'].value_counts().to_string())
 
-    # Step 4.5: Filter out invoices before cutoff date
-    print("\n[4.5] FILTERING BY DATE (Exclude invoices before 2024-10-12)")
-    print("-"*80)
-    before_date_filter = len(combined_df)
-
-    # Parse Invoice Date for filtering
-    combined_df['Invoice Date'] = pd.to_datetime(combined_df['Invoice Date'], errors='coerce')
-
-    # Filter: Only keep invoices/credit notes from 2024-10-12 onwards
-    cutoff_date = pd.Timestamp('2024-10-12')
-    combined_df = combined_df[combined_df['Invoice Date'] >= cutoff_date]
-
-    after_date_filter = len(combined_df)
-    filtered_by_date = before_date_filter - after_date_filter
-    print(f"  [OK] Filtered out {filtered_by_date} items from before 2024-10-12")
-    print(f"  [OK] Remaining: {after_date_filter} items from 2024-10-12 onwards")
-
     # Step 5: Import to database
     print("\n[5] IMPORTING TO DATABASE")
     print("-"*80)
@@ -173,7 +150,8 @@ async def import_from_xlsx():
         await session.commit()
         print("  [OK] Cleared")
 
-        # Parse remaining dates (Invoice Date already parsed in filter step)
+        # Parse dates
+        combined_df['Invoice Date'] = pd.to_datetime(combined_df['Invoice Date'], errors='coerce')
         combined_df['Due Date'] = pd.to_datetime(combined_df['Due Date'], errors='coerce')
         combined_df['Start Date'] = pd.to_datetime(combined_df['Start Date'], errors='coerce')
         combined_df['End Date'] = pd.to_datetime(combined_df['End Date'], errors='coerce')
@@ -346,4 +324,4 @@ async def import_from_xlsx():
 
 
 if __name__ == "__main__":
-    asyncio.run(import_from_xlsx())
+    asyncio.run(import_from_csv())
