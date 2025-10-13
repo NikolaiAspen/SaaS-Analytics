@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="no" style="background: #0b1020;">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Faktura MRR Drilldown - {{ month_name }} - SaaS Analytics</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        {% include 'sidebar_styles.html' %}
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            margin-left: 240px;
+            padding: 20px;
+        }
+
+        header {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            margin: 0;
+        }
+
+        .breadcrumb {
+            font-size: 14px;
+            color: var(--muted);
+            margin-bottom: 16px;
+        }
+
+        .breadcrumb a {
+            color: var(--good);
+            text-decoration: none;
+        }
+
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            color: var(--ink);
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .summary-item {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .summary-label {
+            font-size: 12px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .summary-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--ink);
+        }
+
+        .summary-value.good {
+            color: var(--good);
+        }
+
+        .summary-value.bad {
+            color: var(--bad);
+        }
+
+        .export-btn {
+            background: var(--good);
+            color: #0b1020;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 14px;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .export-btn:hover {
+            background: #5ee7ab;
+            transform: translateY(-1px);
+        }
+
+        table {
+            width: 100%;
+            min-width: 1800px;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th, td {
+            padding: 10px 8px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            white-space: nowrap;
+        }
+
+        th {
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+            background: var(--panel);
+            z-index: 10;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        th:hover {
+            color: var(--ink);
+        }
+
+        td {
+            color: var(--ink);
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .number {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .creditnote {
+            background: rgba(255, 107, 107, 0.05);
+        }
+
+        .creditnote-badge {
+            background: var(--bad);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .negative-amount {
+            color: var(--bad);
+        }
+
+        .positive-amount {
+            color: var(--good);
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 0;
+                overflow: hidden;
+            }
+
+            .container {
+                margin-left: 0;
+            }
+
+            table {
+                font-size: 12px;
+            }
+
+            th, td {
+                padding: 8px 6px;
+            }
+        }
+    </style>
+</head>
+<body>
+    {% set active_page = 'invoices_trends' %}
+    {% include 'sidebar.html' %}
+
+    <div class="container">
+        <div class="breadcrumb">
+            <a href="/api/invoices/trends">← Tilbake til Faktura Trender</a>
+        </div>
+
+        <header>
+            <h1>🧾 Faktura MRR Drilldown - {{ month_name }}</h1>
+            <a href="/api/invoices/month-drilldown/export?month={{ month }}" class="export-btn">
+                📊 Eksporter til Excel
+            </a>
+        </header>
+
+        <div class="card">
+            <h2>📈 Sammendrag for {{ month_name }}</h2>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <div class="summary-label">Total MRR</div>
+                    <div class="summary-value good">{{ "%.2f"|format(total_mrr) }} kr</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">Unike Kunder</div>
+                    <div class="summary-value">{{ unique_customers }}</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">Aktive Fakturaer</div>
+                    <div class="summary-value">{{ unique_invoices }}</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">Fakturalinjer</div>
+                    <div class="summary-value">{{ invoice_lines }}</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">Kreditnotalinjer</div>
+                    <div class="summary-value bad">{{ creditnote_lines }}</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">Totalt Linjer</div>
+                    <div class="summary-value">{{ line_items|length }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Alle Fakturalinjer Aktive i {{ month_name }}</h2>
+            <p style="color: var(--muted); margin-bottom: 16px; font-size: 14px;">
+                📋 Viser alle fakturalinjer som var aktive i {{ month_name }}.
+                Klikk på kolonneoverskrifter for å sortere tabellen.
+            </p>
+            <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+                <table id="drilldownTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable(0)">Fakturanr</th>
+                            <th onclick="sortTable(1)">Fakturadato</th>
+                            <th onclick="sortTable(2)">Type</th>
+                            <th onclick="sortTable(3)">Kunde</th>
+                            <th onclick="sortTable(4)">Fartøy</th>
+                            <th onclick="sortTable(5)">Kallesignal</th>
+                            <th onclick="sortTable(6)">Produkt</th>
+                            <th onclick="sortTable(7)">Periode Start</th>
+                            <th onclick="sortTable(8)">Periode Slutt</th>
+                            <th onclick="sortTable(9)" class="number">Periode Mnd</th>
+                            <th onclick="sortTable(10)" class="number">Totalt Beløp</th>
+                            <th onclick="sortTable(11)" class="number">MRR per Mnd</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in line_items %}
+                        <tr class="{% if item.transaction_type == 'creditnote' %}creditnote{% endif %}">
+                            <td>{{ item.invoice_number }}</td>
+                            <td>{{ item.invoice_date.strftime('%d.%m.%Y') if item.invoice_date else '' }}</td>
+                            <td>
+                                {% if item.transaction_type == 'creditnote' %}
+                                <span class="creditnote-badge">KREDITNOTA</span>
+                                {% else %}
+                                Faktura
+                                {% endif %}
+                            </td>
+                            <td>{{ item.customer_name }}</td>
+                            <td>{{ item.vessel_name }}</td>
+                            <td>{{ item.call_sign }}</td>
+                            <td>{{ item.item_name }}</td>
+                            <td>{{ item.period_start.strftime('%d.%m.%Y') if item.period_start else '' }}</td>
+                            <td>{{ item.period_end.strftime('%d.%m.%Y') if item.period_end else '' }}</td>
+                            <td class="number">{{ item.period_months }}</td>
+                            <td class="number {% if item.item_total < 0 %}negative-amount{% endif %}">
+                                {{ "%.2f"|format(item.item_total) }} kr
+                            </td>
+                            <td class="number {% if item.mrr_per_month < 0 %}negative-amount{% else %}positive-amount{% endif %}">
+                                {{ "%.2f"|format(item.mrr_per_month) }} kr
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Table sorting
+        let sortDirection = {};
+
+        function sortTable(columnIndex) {
+            const table = document.getElementById('drilldownTable');
+            const tbody = table.tBodies[0];
+            const rows = Array.from(tbody.rows);
+
+            // Toggle sort direction
+            if (!sortDirection[columnIndex]) {
+                sortDirection[columnIndex] = 'asc';
+            } else {
+                sortDirection[columnIndex] = sortDirection[columnIndex] === 'asc' ? 'desc' : 'asc';
+            }
+
+            const direction = sortDirection[columnIndex];
+
+            // Sort rows
+            rows.sort((a, b) => {
+                const aValue = a.cells[columnIndex].textContent.trim();
+                const bValue = b.cells[columnIndex].textContent.trim();
+
+                // Try to parse as number
+                const aNum = parseFloat(aValue.replace(/[^\d.-]/g, ''));
+                const bNum = parseFloat(bValue.replace(/[^\d.-]/g, ''));
+
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                    return direction === 'asc' ? aNum - bNum : bNum - aNum;
+                }
+
+                // String comparison
+                return direction === 'asc'
+                    ? aValue.localeCompare(bValue, 'no')
+                    : bValue.localeCompare(aValue, 'no');
+            });
+
+            // Re-append sorted rows
+            rows.forEach(row => tbody.appendChild(row));
+
+            // Update header indicators
+            const headers = table.querySelectorAll('th');
+            headers.forEach((header, index) => {
+                header.style.color = index === columnIndex ? 'var(--good)' : 'var(--muted)';
+            });
+        }
+    </script>
+</body>
+</html>

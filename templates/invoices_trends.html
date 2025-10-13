@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="no">
+<html lang="no" style="background: #0b1020;">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -29,76 +29,7 @@
             min-height: 100vh;
         }
 
-        .sidebar {
-            position: fixed;
-            left: 0;
-            top: 0;
-            width: 240px;
-            height: 100vh;
-            background: rgba(18, 25, 51, 0.95);
-            border-right: 1px solid rgba(255, 255, 255, 0.06);
-            overflow-y: auto;
-            z-index: 1000;
-        }
-
-        .sidebar-logo {
-            padding: 24px 20px;
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--ink);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        .sidebar-nav {
-            padding: 12px 0;
-        }
-
-        .nav-section {
-            padding: 20px 0 8px 0;
-        }
-
-        .nav-section-title {
-            padding: 0 20px;
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
-        }
-
-        .nav-link {
-            display: flex;
-            align-items: center;
-            padding: 10px 20px;
-            color: var(--muted);
-            text-decoration: none;
-            font-size: 14px;
-            transition: all 0.2s;
-            border-left: 3px solid transparent;
-        }
-
-        .nav-link:hover {
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--ink);
-        }
-
-        .nav-link.active {
-            background: rgba(61, 220, 151, 0.15);
-            color: var(--good);
-            border-left-color: var(--good);
-        }
-
-        .nav-link-icon {
-            margin-right: 10px;
-            font-size: 16px;
-        }
-
-        .nav-divider {
-            height: 1px;
-            background: rgba(255, 255, 255, 0.06);
-            margin: 12px 20px;
-        }
+        {% include 'sidebar_styles.html' %}
 
         .container {
             max-width: 100%;
@@ -140,7 +71,7 @@
 
         table {
             width: 100%;
-            min-width: 1200px;
+            min-width: 1600px;
             border-collapse: collapse;
             font-size: 13px;
         }
@@ -190,8 +121,16 @@
         }
 
         .month-link {
-            color: var(--ink);
+            color: #3ddc97;
             font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .month-link:hover {
+            color: #5ee7ab;
+            text-decoration: underline;
         }
 
         .info-note {
@@ -231,80 +170,8 @@
     </style>
 </head>
 <body>
-    <div class="sidebar">
-        <div class="sidebar-logo">SaaS Analytics</div>
-        <nav class="sidebar-nav">
-            <div class="nav-section-title">SUBSCRIPTIONS</div>
-            <a href="/api/dashboard" class="nav-link">
-                <span class="nav-link-icon">📊</span>
-                <span>Dashboard</span>
-            </a>
-            <a href="/api/trends" class="nav-link">
-                <span class="nav-link-icon">📈</span>
-                <span>Månedlige Trender</span>
-            </a>
-            <a href="/api/forecast" class="nav-link">
-                <span class="nav-link-icon">🔮</span>
-                <span>MRR Forecast</span>
-            </a>
-
-            <div class="nav-divider"></div>
-
-            <div class="nav-section-title">FAKTURAER <span style="background: var(--warn); color: #0b1020; padding: 2px 6px; border-radius: 4px; font-size: 9px; margin-left: 4px;">BETA</span></div>
-            <a href="/api/invoices/dashboard" class="nav-link">
-                <span class="nav-link-icon">🧾</span>
-                <span>Faktura Dashboard</span>
-            </a>
-            <a href="/api/invoices/trends" class="nav-link active">
-                <span class="nav-link-icon">📊</span>
-                <span>Faktura Trender</span>
-            </a>
-
-            <div class="nav-divider"></div>
-
-            <div class="nav-section">
-                <div class="nav-section-title">ANALYSE</div>
-                <a href="/api/drilldown/mrr" class="nav-link">
-                    <span class="nav-link-icon">💰</span>
-                    <span>MRR Grunnlag</span>
-                </a>
-                <a href="/api/drilldown/customers" class="nav-link">
-                    <span class="nav-link-icon">👥</span>
-                    <span>Selskaper</span>
-                </a>
-                <a href="/api/customers/all" class="nav-link">
-                    <span class="nav-link-icon">📋</span>
-                    <span>Kunder og oppsigelser</span>
-                </a>
-                <a href="/api/drilldown/churn" class="nav-link">
-                    <span class="nav-link-icon">📉</span>
-                    <span>Churn</span>
-                </a>
-            </div>
-
-            <div class="nav-divider"></div>
-
-            <div class="nav-section">
-                <div class="nav-section-title">SYSTEM</div>
-                <a href="/api/documents" class="nav-link">
-                    <span class="nav-link-icon">📄</span>
-                    <span>Importerte Filer</span>
-                </a>
-                <a href="/api/changelog" class="nav-link">
-                    <span class="nav-link-icon">📋</span>
-                    <span>Endringslogg</span>
-                </a>
-                <a href="/api/guide" class="nav-link">
-                    <span class="nav-link-icon">📖</span>
-                    <span>Brukerveiledning</span>
-                </a>
-                <a href="/api/debug" class="nav-link" style="opacity: 0.6;">
-                    <span class="nav-link-icon">🔍</span>
-                    <span>Database Info</span>
-                </a>
-            </div>
-        </nav>
-    </div>
+    {% set active_page = 'invoices_trends' %}
+    {% include 'sidebar.html' %}
 
     <div class="container">
         <header>
@@ -329,7 +196,10 @@
                 • <strong>MRR:</strong> Total månedlig gjentakende inntekt ved slutten av måneden (fra fakturaer)<br>
                 • <strong>ARR:</strong> MRR × 12 (årlig gjentakende inntekt)<br>
                 • <strong>ARPU:</strong> Gjennomsnittlig inntekt per kunde<br>
-                • <strong>Aktive Fakturaer:</strong> Antall fakturaer med aktive linjer i denne måneden
+                • <strong>Aktive Linjer:</strong> Totalt antall fakturalinjer (inkludert kreditnotaer) aktive denne måneden<br>
+                • <strong>Faktura Linjer:</strong> Antall fakturalinjer som bidrar til MRR<br>
+                • <strong>Kreditnota Linjer:</strong> Antall kreditnotalinjer som reduserer MRR (vises i rødt)<br>
+                • <strong>Aktive Fakturaer:</strong> Antall unike fakturaer med aktive linjer
             </p>
             <div id="dataSourceInfo" style="background: rgba(61, 220, 151, 0.1); padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; color: var(--good); font-size: 13px; border-left: 3px solid var(--good);">
                 ✓ <strong>Dataene er beregnet fra fakturalinjer</strong> - MRR reflekterer faktiske fakturaperioder fra Zoho Billing.
@@ -452,6 +322,9 @@
                         <th class="number">Kunder</th>
                         <th class="number">Kunde Endring</th>
                         <th class="number">ARPU</th>
+                        <th class="number">Aktive Linjer</th>
+                        <th class="number">Faktura Linjer</th>
+                        <th class="number">Kreditnota Linjer</th>
                         <th class="number">Aktive Fakturaer</th>
                         <th class="number">Ny MRR</th>
                         <th class="number">Churned MRR</th>
@@ -472,7 +345,7 @@
 
                 tbody += `
                     <tr>
-                        <td class="month-link">${trend.month_name}</td>
+                        <td><a href="/api/invoices/month-drilldown?month=${trend.month}" class="month-link">${trend.month_name}</a></td>
                         <td class="number">${formatNumber(trend.mrr, false, 2)} kr</td>
                         <td class="number ${mrrChangeClass}">${formatNumber(mrrChange, true, 2)} kr</td>
                         <td class="number ${mrrChangeClass}">${formatNumber(mrrChangePct, true, 2)}%</td>
@@ -480,6 +353,9 @@
                         <td class="number">${trend.customers}</td>
                         <td class="number ${customerChangeClass}">${formatNumber(customerChange, true)}</td>
                         <td class="number">${formatNumber(trend.arpu, false, 2)} kr</td>
+                        <td class="number">${trend.active_lines || 0}</td>
+                        <td class="number">${trend.invoice_lines || 0}</td>
+                        <td class="number" style="color: var(--bad);">${trend.creditnote_lines || 0}</td>
                         <td class="number">${trend.active_invoices || 0}</td>
                         <td class="number positive">${formatNumber(trend.new_mrr, false, 2)} kr</td>
                         <td class="number negative">${trend.churned_mrr > 0 ? '-' : ''}${formatNumber(Math.abs(trend.churned_mrr), false, 2)} kr</td>

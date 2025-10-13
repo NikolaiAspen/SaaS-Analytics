@@ -1,3 +1,4 @@
+# Invoice drilldown feature added
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -3223,6 +3224,175 @@ async def invoices_trends(request: Request, session: AsyncSession = Depends(get_
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Invoice trends failed: {str(e)}")
+
+
+@app.get("/api/invoices/month-drilldown", response_class=HTMLResponse)
+async def invoices_month_drilldown(
+    request: Request,
+    month: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Drilldown view for invoice line items in a specific month
+    Shows all invoices and line items active in the specified month
+    """
+    try:
+        from services.invoice import InvoiceService
+        from models.invoice import Invoice, InvoiceLineItem
+        from sqlalchemy import select
+        from datetime import datetime
+
+        invoice_service = InvoiceService(session)
+
+        # Parse target month
+        year, month_num = map(int, month.split('-'))
+        target_date = datetime(year, month_num, 1)
+        month_name = target_date.strftime("%B %Y")
+
+        # Get all line items active in this month
+        stmt = select(InvoiceLineItem, Invoice).join(
+            Invoice, InvoiceLineItem.invoice_id == Invoice.id
+        ).where(
+            InvoiceLineItem.period_start_date <= target_date,
+            InvoiceLineItem.period_end_date >= target_date
+        ).order_by(Invoice.customer_name, InvoiceLineItem.name)
+
+        result = await session.execute(stmt)
+        rows = result.all()
+
+        # Build line items list with invoice details
+        line_items = []
+        total_mrr = 0
+
+        for line_item, invoice in rows:
+            mrr = line_item.mrr_per_month or 0
+            total_mrr += mrr
+
+            line_items.append({
+                'invoice_number': invoice.invoice_number,
+                'invoice_date': invoice.invoice_date,
+                'customer_name': invoice.customer_name,
+                'transaction_type': invoice.transaction_type,
+                'item_name': line_item.name,
+                'item_description': line_item.description or '',
+                'vessel_name': line_item.vessel_name or '',
+                'call_sign': line_item.call_sign or '',
+                'period_start': line_item.period_start_date,
+                'period_end': line_item.period_end_date,
+                'period_months': line_item.period_months or 1,
+                'item_total': line_item.item_total or 0,
+                'mrr_per_month': mrr,
+            })
+
+        # Count unique customers and invoices
+        unique_customers = len(set(item['customer_name'] for item in line_items))
+        unique_invoices = len(set(item['invoice_number'] for item in line_items))
+
+        # Count invoice vs credit note lines
+        invoice_lines = len([item for item in line_items if item['transaction_type'] == 'invoice'])
+        creditnote_lines = len([item for item in line_items if item['transaction_type'] == 'creditnote'])
+
+        return templates.TemplateResponse(
+            "invoices_month_drilldown.html",
+            {
+                "request": request,
+                "month": month,
+                "month_name": month_name,
+                "line_items": line_items,
+                "total_mrr": total_mrr,
+                "unique_customers": unique_customers,
+                "unique_invoices": unique_invoices,
+                "invoice_lines": invoice_lines,
+                "creditnote_lines": creditnote_lines,
+                "active_page": "invoices",
+            },
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Invoice drilldown failed: {str(e)}")
+
+
+@app.get("/api/invoices/month-drilldown/export")
+async def export_invoice_month_drilldown(
+    month: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Export invoice line items for a specific month to Excel
+    """
+    try:
+        from services.invoice import InvoiceService
+        from models.invoice import Invoice, InvoiceLineItem
+        from sqlalchemy import select
+        from datetime import datetime
+        import io
+        import pandas as pd
+        from fastapi.responses import StreamingResponse
+
+        # Parse target month
+        year, month_num = map(int, month.split('-'))
+        target_date = datetime(year, month_num, 1)
+        month_name = target_date.strftime("%B %Y")
+
+        # Get all line items active in this month
+        stmt = select(InvoiceLineItem, Invoice).join(
+            Invoice, InvoiceLineItem.invoice_id == Invoice.id
+        ).where(
+            InvoiceLineItem.period_start_date <= target_date,
+            InvoiceLineItem.period_end_date >= target_date
+        ).order_by(Invoice.customer_name, InvoiceLineItem.name)
+
+        result = await session.execute(stmt)
+        rows = result.all()
+
+        # Build export data
+        export_data = []
+        for line_item, invoice in rows:
+            export_data.append({
+                'Fakturanummer': invoice.invoice_number,
+                'Fakturadato': invoice.invoice_date.strftime('%Y-%m-%d') if invoice.invoice_date else '',
+                'Type': 'Faktura' if invoice.transaction_type == 'invoice' else 'Kreditnota',
+                'Kunde': invoice.customer_name,
+                'Fartøy': line_item.vessel_name or '',
+                'Kallesignal': line_item.call_sign or '',
+                'Produktnavn': line_item.name,
+                'Beskrivelse': line_item.description or '',
+                'Periode Start': line_item.period_start_date.strftime('%Y-%m-%d') if line_item.period_start_date else '',
+                'Periode Slutt': line_item.period_end_date.strftime('%Y-%m-%d') if line_item.period_end_date else '',
+                'Periode Måneder': line_item.period_months or 1,
+                'Totalt Beløp': line_item.item_total or 0,
+                'MRR per Måned': line_item.mrr_per_month or 0,
+            })
+
+        # Create DataFrame
+        df = pd.DataFrame(export_data)
+
+        # Create Excel file in memory
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name=f'{month_name}', index=False)
+
+            # Auto-adjust column widths
+            worksheet = writer.sheets[f'{month_name}']
+            for idx, col in enumerate(df.columns):
+                max_length = max(
+                    df[col].astype(str).apply(len).max(),
+                    len(col)
+                ) + 2
+                worksheet.column_dimensions[chr(65 + idx)].width = min(max_length, 50)
+
+        output.seek(0)
+
+        # Return as downloadable file
+        filename = f"faktura_mrr_{month}_{month_name.replace(' ', '_')}.xlsx"
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 
 @app.get("/api/invoices/monthly-trends")

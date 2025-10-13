@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="no">
+<html lang="no" style="background: #0b1020;">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -29,76 +29,7 @@
             min-height: 100vh;
         }
 
-        .sidebar {
-            position: fixed;
-            left: 0;
-            top: 0;
-            width: 240px;
-            height: 100vh;
-            background: rgba(18, 25, 51, 0.95);
-            border-right: 1px solid rgba(255, 255, 255, 0.06);
-            overflow-y: auto;
-            z-index: 1000;
-        }
-
-        .sidebar-logo {
-            padding: 24px 20px;
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--ink);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        .sidebar-nav {
-            padding: 12px 0;
-        }
-
-        .nav-section {
-            padding: 20px 0 8px 0;
-        }
-
-        .nav-section-title {
-            padding: 0 20px;
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
-        }
-
-        .nav-link {
-            display: flex;
-            align-items: center;
-            padding: 10px 20px;
-            color: var(--muted);
-            text-decoration: none;
-            font-size: 14px;
-            transition: all 0.2s;
-            border-left: 3px solid transparent;
-        }
-
-        .nav-link:hover {
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--ink);
-        }
-
-        .nav-link.active {
-            background: rgba(61, 220, 151, 0.15);
-            color: var(--good);
-            border-left-color: var(--good);
-        }
-
-        .nav-link-icon {
-            margin-right: 10px;
-            font-size: 16px;
-        }
-
-        .nav-divider {
-            height: 1px;
-            background: rgba(255, 255, 255, 0.06);
-            margin: 12px 20px;
-        }
+        {% include 'sidebar_styles.html' %}
 
         .container {
             max-width: 1400px;
@@ -314,80 +245,7 @@
     </style>
 </head>
 <body>
-    <div class="sidebar">
-        <div class="sidebar-logo">SaaS Analytics</div>
-        <nav class="sidebar-nav">
-            <div class="nav-section-title">SUBSCRIPTIONS</div>
-            <a href="/api/dashboard" class="nav-link">
-                <span class="nav-link-icon">📊</span>
-                <span>Dashboard</span>
-            </a>
-            <a href="/api/trends" class="nav-link">
-                <span class="nav-link-icon">📈</span>
-                <span>Månedlige Trender</span>
-            </a>
-            <a href="/api/forecast" class="nav-link">
-                <span class="nav-link-icon">🔮</span>
-                <span>MRR Forecast</span>
-            </a>
-
-            <div class="nav-divider"></div>
-
-            <div class="nav-section-title">FAKTURAER <span style="background: var(--warn); color: #0b1020; padding: 2px 6px; border-radius: 4px; font-size: 9px; margin-left: 4px;">BETA</span></div>
-            <a href="/api/invoices/dashboard" class="nav-link">
-                <span class="nav-link-icon">🧾</span>
-                <span>Faktura Dashboard</span>
-            </a>
-            <a href="/api/invoices/trends" class="nav-link">
-                <span class="nav-link-icon">📊</span>
-                <span>Faktura Trender</span>
-            </a>
-
-            <div class="nav-divider"></div>
-
-            <div class="nav-section">
-                <div class="nav-section-title">ANALYSE</div>
-                <a href="/api/drilldown/mrr" class="nav-link" data-page="mrr">
-                    <span class="nav-link-icon">💰</span>
-                    <span>MRR Grunnlag</span>
-                </a>
-                <a href="/api/drilldown/customers" class="nav-link" data-page="customers">
-                    <span class="nav-link-icon">👥</span>
-                    <span>Selskaper</span>
-                </a>
-                <a href="/api/customers/all" class="nav-link">
-                    <span class="nav-link-icon">📋</span>
-                    <span>Kunder og oppsigelser</span>
-                </a>
-                <a href="/api/drilldown/churn" class="nav-link" data-page="churn">
-                    <span class="nav-link-icon">📉</span>
-                    <span>Churn</span>
-                </a>
-            </div>
-
-            <div class="nav-divider"></div>
-
-            <div class="nav-section">
-                <div class="nav-section-title">SYSTEM</div>
-                <a href="/api/documents" class="nav-link">
-                    <span class="nav-link-icon">📄</span>
-                    <span>Importerte Filer</span>
-                </a>
-                <a href="/api/changelog" class="nav-link">
-                    <span class="nav-link-icon">📋</span>
-                    <span>Endringslogg</span>
-                </a>
-                <a href="/api/guide" class="nav-link">
-                    <span class="nav-link-icon">📖</span>
-                    <span>Brukerveiledning</span>
-                </a>
-                <a href="/api/debug" class="nav-link" style="opacity: 0.6;">
-                    <span class="nav-link-icon">🔍</span>
-                    <span>Database Info</span>
-                </a>
-            </div>
-        </nav>
-    </div>
+    {% include 'sidebar.html' %}
 
     <div class="container">
         <header>
