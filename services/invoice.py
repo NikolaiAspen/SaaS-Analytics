@@ -209,28 +209,43 @@ class InvoiceService:
 
     async def get_mrr_for_month(self, target_month: str) -> float:
         """
-        Calculate total MRR for a specific month from all invoice line items
+        Calculate total MRR for a specific month from all invoice and credit note line items
+
+        NOTE: Credit notes have negative MRR values, so they reduce the total MRR
 
         Args:
             target_month: Month in YYYY-MM format (e.g., "2025-10")
 
         Returns:
-            Total MRR for the month
+            Total MRR for the month (invoices + credit notes)
         """
+        from models.invoice import CreditNoteLineItem
+
         # Parse target month
         year, month = map(int, target_month.split('-'))
         target_date = datetime(year, month, 1)
 
-        # Get all line items that are active in this month
+        # Get all invoice line items that are active in this month
         stmt = select(InvoiceLineItem).where(
             InvoiceLineItem.period_start_date <= target_date,
             InvoiceLineItem.period_end_date >= target_date
         )
         result = await self.session.execute(stmt)
-        line_items = result.scalars().all()
+        invoice_line_items = result.scalars().all()
 
-        # Sum up MRR
-        total_mrr = sum(item.mrr_per_month for item in line_items if item.mrr_per_month)
+        # Get all credit note line items that are active in this month
+        stmt = select(CreditNoteLineItem).where(
+            CreditNoteLineItem.period_start_date <= target_date,
+            CreditNoteLineItem.period_end_date >= target_date
+        )
+        result = await self.session.execute(stmt)
+        credit_line_items = result.scalars().all()
+
+        # Sum up MRR (credit notes will have negative values)
+        invoice_mrr = sum(item.mrr_per_month for item in invoice_line_items if item.mrr_per_month)
+        credit_mrr = sum(item.mrr_per_month for item in credit_line_items if item.mrr_per_month)
+
+        total_mrr = invoice_mrr + credit_mrr  # credit_mrr is negative, so this subtracts it
 
         return total_mrr
 
@@ -270,6 +285,8 @@ class InvoiceService:
         Returns:
             InvoiceMRRSnapshot object
         """
+        from models.invoice import CreditNoteLineItem
+
         # Calculate MRR for this month
         mrr = await self.get_mrr_for_month(target_month)
         arr = mrr * 12
@@ -293,6 +310,24 @@ class InvoiceService:
         result = await self.session.execute(stmt)
         active_invoices = result.scalar() or 0
 
+        # Count invoice line items
+        stmt = select(func.count(InvoiceLineItem.id)).where(
+            InvoiceLineItem.period_start_date <= target_date,
+            InvoiceLineItem.period_end_date >= target_date
+        )
+        result = await self.session.execute(stmt)
+        invoice_lines = result.scalar() or 0
+
+        # Count credit note line items
+        stmt = select(func.count(CreditNoteLineItem.id)).where(
+            CreditNoteLineItem.period_start_date <= target_date,
+            CreditNoteLineItem.period_end_date >= target_date
+        )
+        result = await self.session.execute(stmt)
+        creditnote_lines = result.scalar() or 0
+
+        active_lines = invoice_lines + creditnote_lines
+
         # Check if snapshot exists
         stmt = select(InvoiceMRRSnapshot).where(InvoiceMRRSnapshot.month == target_month)
         result = await self.session.execute(stmt)
@@ -305,6 +340,9 @@ class InvoiceService:
             snapshot.total_customers = total_customers
             snapshot.active_invoices = active_invoices
             snapshot.arpu = round(arpu, 2)
+            snapshot.active_lines = active_lines
+            snapshot.invoice_lines = invoice_lines
+            snapshot.creditnote_lines = creditnote_lines
             snapshot.updated_at = datetime.utcnow()
         else:
             # Create new
@@ -315,6 +353,9 @@ class InvoiceService:
                 total_customers=total_customers,
                 active_invoices=active_invoices,
                 arpu=round(arpu, 2),
+                active_lines=active_lines,
+                invoice_lines=invoice_lines,
+                creditnote_lines=creditnote_lines,
                 source="invoice_calculation"
             )
             self.session.add(snapshot)
@@ -411,6 +452,8 @@ class InvoiceService:
         - Customers with subscriptions but no invoices
         - Matching statistics (call sign, vessel)
 
+        NOTE: Excludes invoices that have been fully credited (ownership changes, cancellations)
+
         Args:
             target_month: Month in YYYY-MM format (e.g., "2025-10")
 
@@ -418,6 +461,7 @@ class InvoiceService:
             Dict with gap analysis details
         """
         from models.subscription import Subscription
+        from models.invoice import CreditNote
         from collections import defaultdict
 
         # Parse target month
@@ -455,12 +499,24 @@ class InvoiceService:
                     sub_by_vessel[vessel_clean] = []
                 sub_by_vessel[vessel_clean].append(sub)
 
-        # Get all invoice line items for target month
+        # Get all credit notes to exclude credited invoices and track credit note numbers
+        stmt = select(CreditNote.invoice_id, CreditNote.creditnote_number).where(
+            CreditNote.invoice_id.isnot(None),
+            CreditNote.status.in_(['open', 'closed'])  # Exclude voided credit notes
+        )
+        result = await self.session.execute(stmt)
+        credit_note_mapping = {row[0]: row[1] for row in result.all()}
+        credited_invoice_ids = set(credit_note_mapping.keys())
+
+        print(f"Gap Analysis: Found {len(credited_invoice_ids)} credited invoices to exclude")
+
+        # Get all invoice line items for target month, excluding credited invoices
         stmt = select(InvoiceLineItem, Invoice).join(
             Invoice, InvoiceLineItem.invoice_id == Invoice.id
         ).where(
             InvoiceLineItem.period_start_date <= target_month_end,
-            InvoiceLineItem.period_end_date >= target_month_start
+            InvoiceLineItem.period_end_date >= target_month_start,
+            ~Invoice.id.in_(credited_invoice_ids)  # Exclude credited invoices
         )
         result = await self.session.execute(stmt)
         invoice_rows = result.all()
@@ -495,8 +551,11 @@ class InvoiceService:
                 'mrr': mrr
             })
 
-        # Find customers with invoices but no subscriptions
-        customers_without_subs = []
+        # Find customers with invoices but no direct name match
+        # Split into two categories: matched (via call sign/vessel) and truly unmatched
+        customers_with_name_mismatch = []
+        customers_truly_without_subs = []
+
         matched_by_call_sign = 0
         matched_by_vessel = 0
         unmatched = 0
@@ -514,7 +573,7 @@ class InvoiceService:
                     call_sign_upper = call_sign.upper()
                     if call_sign_upper in sub_by_call_sign:
                         for sub in sub_by_call_sign[call_sign_upper]:
-                            if sub.customer_name not in matches:
+                            if sub.customer_name not in [m.get('subscription_customer') for m in matches]:
                                 matches.append({
                                     'type': 'call_sign',
                                     'value': call_sign,
@@ -533,31 +592,36 @@ class InvoiceService:
                                 })
 
                 customer_mrr = customer_data['total_mrr']
-                total_gap_mrr += customer_mrr
-
-                if matches:
-                    matched_gap_mrr += customer_mrr
-                    if any(m['type'] == 'call_sign' for m in matches):
-                        matched_by_call_sign += 1
-                    elif any(m['type'] == 'vessel' for m in matches):
-                        matched_by_vessel += 1
-                else:
-                    unmatched += 1
-                    unmatched_gap_mrr += customer_mrr
-
-                customers_without_subs.append({
+                customer_info = {
                     'customer_name': customer_name,
                     'mrr': customer_mrr,
                     'vessels': list(customer_data['vessels']),
                     'call_signs': list(customer_data['call_signs']),
                     'matches': matches,
                     'line_items': customer_data['line_items']
-                })
+                }
 
-        # Sort by MRR descending
-        customers_without_subs.sort(key=lambda x: x['mrr'], reverse=True)
+                if matches:
+                    # Has matches - this is a name mismatch but subscription exists
+                    matched_gap_mrr += customer_mrr
+                    if any(m['type'] == 'call_sign' for m in matches):
+                        matched_by_call_sign += 1
+                    elif any(m['type'] == 'vessel' for m in matches):
+                        matched_by_vessel += 1
+                    customers_with_name_mismatch.append(customer_info)
+                else:
+                    # No matches - truly without subscription
+                    unmatched += 1
+                    unmatched_gap_mrr += customer_mrr
+                    total_gap_mrr += customer_mrr
+                    customers_truly_without_subs.append(customer_info)
 
-        # Find customers with subscriptions but no invoices (rare, but possible)
+        # Sort both lists by MRR descending
+        customers_with_name_mismatch.sort(key=lambda x: x['mrr'], reverse=True)
+        customers_truly_without_subs.sort(key=lambda x: x['mrr'], reverse=True)
+
+        # Find customers with subscriptions but no invoices in this month
+        # This shows subscriptions that are active but weren't invoiced this month
         customers_without_invoices = []
         invoice_customer_names = set(invoice_customers.keys())
 
@@ -581,11 +645,14 @@ class InvoiceService:
             'total_gap_mrr': total_gap_mrr,
             'matched_gap_mrr': matched_gap_mrr,
             'unmatched_gap_mrr': unmatched_gap_mrr,
-            'customers_without_subscriptions': len(customers_without_subs),
+            'customers_with_name_mismatch': len(customers_with_name_mismatch),
+            'customers_truly_without_subs': len(customers_truly_without_subs),
             'customers_without_invoices': len(customers_without_invoices),
             'matched_by_call_sign': matched_by_call_sign,
             'matched_by_vessel': matched_by_vessel,
             'unmatched_customers': unmatched,
-            'customers_without_subs_list': customers_without_subs[:30],  # Top 30 by MRR
-            'customers_without_invoices_list': customers_without_invoices[:30],  # Top 30 by MRR
+            'credited_invoices_count': len(credited_invoice_ids),  # Number of credited invoices excluded
+            'customers_with_name_mismatch_list': customers_with_name_mismatch,  # ALL customers
+            'customers_truly_without_subs_list': customers_truly_without_subs,  # ALL customers
+            'customers_without_invoices_list': customers_without_invoices,  # ALL customers
         }

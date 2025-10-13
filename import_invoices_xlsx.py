@@ -1,6 +1,7 @@
 """
-Import invoice data from Zoho CSV exports (FULL HISTORY)
+Import invoice data from Zoho Excel exports (FULL HISTORY)
 Uses parameters.xlsx mapping for periodization and hardware filtering
+Supports .xlsx and .xls file formats
 """
 
 import asyncio
@@ -11,11 +12,11 @@ from models.invoice import Invoice, InvoiceLineItem
 from sqlalchemy import delete
 
 
-async def import_from_csv():
-    """Import invoices from Zoho CSV exports using parameters mapping"""
+async def import_from_excel():
+    """Import invoices from Zoho Excel exports using parameters mapping"""
 
     print("="*80)
-    print("ZOHO CSV INVOICE IMPORT - FULL HISTORY (WITH PARAMETERS MAPPING)")
+    print("ZOHO EXCEL INVOICE IMPORT - FULL HISTORY (WITH PARAMETERS MAPPING)")
     print("="*80)
 
     # Load parameters mapping
@@ -52,75 +53,59 @@ async def import_from_csv():
         print(f"      - {group}: {group_counts[group]} items")
     print(f"  [OK] All other revenue groups will be excluded")
 
-    # Step 2: Load CSV data from Zoho exports (invoices + credit notes)
-    print("\n[2] LOADING ZOHO CSV FILES")
+    # Step 2: Load Excel data from Zoho exports (invoices + credit notes)
+    print("\n[2] LOADING ZOHO EXCEL FILES")
     print("-"*80)
     all_data = []
 
-    # Load invoice file (complete Zoho export)
-    invoice_file = "c:/Users/nikolai/Downloads/Dualog Fisknett AS_2025-10-12/Invoice.csv"
+    # Load invoice file (complete Zoho export - ALL invoice data with line items)
+    invoice_file = r"c:\Users\nikolai\Downloads\Dualog Fisknett AS_2025-10-13\Invoice.xls"
     print(f"  Loading {invoice_file}...")
-    inv_df = pd.read_csv(invoice_file, low_memory=False)
+    inv_df = pd.read_excel(invoice_file)
     inv_df['transaction_type'] = 'invoice'
-    all_data.append(inv_df)
+    inv_df = inv_df.reset_index(drop=True)  # Reset index to avoid conflicts
     print(f"  [OK] Loaded invoice file: {len(inv_df)} lines")
 
-    # Load credit note file
-    cn_file = "c:/Users/nikolai/Downloads/Dualog Fisknett AS_2025-10-12/Credit_Note.csv"
+    # Load credit note file (merged file with ALL fields including line items)
+    cn_file = r"c:\Users\nikolai\AppData\Roaming\Microsoft\Windows\Network Shortcuts\Credit_Note merged.xlsx"
     print(f"  Loading {cn_file}...")
-    cn_df = pd.read_csv(cn_file, low_memory=False)
+    cn_df = pd.read_excel(cn_file)
+    cn_df = cn_df.reset_index(drop=True)  # Reset index to avoid conflicts
+
+    # Standardize column names (fix spacing differences)
+    cn_df = cn_df.rename(columns={
+        'Billing Street 2': 'Billing Street2',
+        'Shipping Street 2': 'Shipping Street2'
+    })
+
+    # Rename "Invoice Number" (applied invoice) to "Applied Invoice Number" to avoid conflicts
+    cn_df = cn_df.rename(columns={
+        'Invoice Number': 'Applied Invoice Number'
+    })
 
     # Map credit note columns to invoice format
     cn_df = cn_df.rename(columns={
         'CreditNotes ID': 'Invoice ID',
         'Credit Note Number': 'Invoice Number',
         'Credit Note Date': 'Invoice Date',
-        'Credit Note Status': 'Invoice Status'
+        'Credit Note Status': 'Invoice Status',
+        'CF.RKAL': 'CF.Radiokallesignal'  # Standardize call sign column name
     })
     cn_df['transaction_type'] = 'creditnote'
     cn_df['Due Date'] = cn_df['Invoice Date']  # Credit notes don't have due dates
-    cn_df['Line Item Type'] = 'Plan'  # Treat all credit notes as Plan for filtering
+    print(f"  [OK] Loaded credit note file: {len(cn_df)} lines")
 
-    # IMPORTANT: Credit notes must have proper periods to affect MRR correctly
-    # We'll calculate Start and End dates based on Item Name + periodization
-    # This is done AFTER loading but BEFORE filtering
-    cn_df['Start Date'] = pd.NaT
-    cn_df['End Date'] = pd.NaT
-
-    # Calculate period for each credit note line
-    for idx, row in cn_df.iterrows():
-        item_name = str(row.get('Item Name', '')).strip() if pd.notna(row.get('Item Name')) else ''
-        cn_date = row['Invoice Date']
-
-        if item_name in periodization_map:
-            period_months = periodization_map[item_name]
-            # Start from credit note date, extend forward by period_months
-            start_date = pd.to_datetime(cn_date)
-            # Calculate end date by adding months
-            end_date = start_date + pd.DateOffset(months=period_months) - pd.DateOffset(days=1)
-            cn_df.at[idx, 'Start Date'] = start_date
-            cn_df.at[idx, 'End Date'] = end_date
-        else:
-            # No matching periodization, use credit note date as both start and end (point date)
-            cn_df.at[idx, 'Start Date'] = cn_date
-            cn_df.at[idx, 'End Date'] = cn_date
-
-    all_data.append(cn_df)
-    print(f"  [OK] Loaded credit notes: {len(cn_df)} lines")
-
-    # Step 3: Combine all data
-    print("\n[3] COMBINING DATA")
+    # Combine all data - stack dataframes
+    print(f"  Combining invoices and credit notes...")
+    combined_df = pd.concat([inv_df, cn_df], ignore_index=True, sort=False)
+    print(f"\n[3] DATA LOADED")
     print("-"*80)
-    combined_df = pd.concat(all_data, ignore_index=True)
     print(f"  [OK] Total lines: {len(combined_df)} (invoices + credit notes)")
 
     # Step 4: Filter to only allowed revenue groups (Fangstdagbok, Support, VMS)
     print("\n[4] FILTERING TO ALLOWED REVENUE GROUPS")
     print("-"*80)
     before_count = len(combined_df)
-
-    # Filter by Line Item Type
-    combined_df = combined_df[combined_df['Line Item Type'].isin(['Plan', 'Add-on'])]
 
     # Only keep items that are in periodization_map (i.e., Fangstdagbok, Support, VMS)
     def is_allowed_revenue_group(row):
@@ -134,12 +119,85 @@ async def import_from_csv():
     print(f"  [OK] Filtered out {filtered_count} items from other revenue groups")
     print(f"  [OK] Remaining: {after_count} items from Fangstdagbok, Support, VMS")
 
-    # Show breakdown
-    print(f"\n  Breakdown:")
-    print(combined_df['Line Item Type'].value_counts().to_string())
+    # Calculate Start Date and End Date
+    print(f"\n  Calculating period dates...")
+    combined_df['Start Date'] = pd.NaT
+    combined_df['End Date'] = pd.NaT
 
-    # Step 5: Import to database
-    print("\n[5] IMPORTING TO DATABASE")
+    # First pass: Calculate periods for INVOICES
+    print(f"  Step 1: Calculating invoice periods...")
+    for idx, row in combined_df.iterrows():
+        if row['transaction_type'] != 'invoice':
+            continue  # Skip credit notes in first pass
+
+        item_name = str(row.get('Item Name', '')).strip() if pd.notna(row.get('Item Name')) else ''
+        invoice_date = row['Invoice Date']
+
+        if item_name in periodization_map:
+            period_months = periodization_map[item_name]
+            # Start from invoice date, extend forward by period_months
+            start_date = pd.to_datetime(invoice_date)
+            # Calculate end date by adding months
+            end_date = start_date + pd.DateOffset(months=period_months) - pd.DateOffset(days=1)
+            combined_df.at[idx, 'Start Date'] = start_date
+            combined_df.at[idx, 'End Date'] = end_date
+
+    # Second pass: Calculate periods for CREDIT NOTES (match to invoice end date)
+    print(f"  Step 2: Matching credit note periods to invoice end dates...")
+
+    # Create invoice lookup: Invoice Number -> End Date
+    invoice_periods = {}
+    for idx, row in combined_df.iterrows():
+        if row['transaction_type'] == 'invoice' and pd.notna(row.get('End Date')):
+            inv_number = str(row['Invoice Number']).strip()
+            end_date = row['End Date']
+            # Store the LATEST end date if multiple lines for same invoice
+            if inv_number not in invoice_periods or end_date > invoice_periods[inv_number]:
+                invoice_periods[inv_number] = end_date
+
+    matched_cn = 0
+    unmatched_cn = 0
+
+    for idx, row in combined_df.iterrows():
+        if row['transaction_type'] != 'creditnote':
+            continue  # Skip invoices
+
+        cn_date = pd.to_datetime(row['Invoice Date'])
+        applied_invoice_num = str(row.get('Applied Invoice Number', '')).strip()
+
+        # Try to match with original invoice
+        if applied_invoice_num and applied_invoice_num in invoice_periods:
+            # MATCH FOUND: Use invoice's end date
+            invoice_end_date = invoice_periods[applied_invoice_num]
+            combined_df.at[idx, 'Start Date'] = cn_date
+            combined_df.at[idx, 'End Date'] = invoice_end_date
+            matched_cn += 1
+        else:
+            # NO MATCH: Fallback to standard periodization
+            item_name = str(row.get('Item Name', '')).strip() if pd.notna(row.get('Item Name')) else ''
+            if item_name in periodization_map:
+                period_months = periodization_map[item_name]
+                end_date = cn_date + pd.DateOffset(months=period_months) - pd.DateOffset(days=1)
+                combined_df.at[idx, 'Start Date'] = cn_date
+                combined_df.at[idx, 'End Date'] = end_date
+            unmatched_cn += 1
+
+    print(f"  [OK] Period dates calculated")
+    print(f"      Credit notes matched to invoice: {matched_cn}")
+    print(f"      Credit notes using fallback: {unmatched_cn}")
+
+    # Step 5: Ensure tables exist
+    print("\n[5] ENSURING DATABASE TABLES EXIST")
+    print("-"*80)
+    from database import engine
+    from models.invoice import Base
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    print("  [OK] All tables created (if missing)")
+
+    # Step 6: Import to database
+    print("\n[6] IMPORTING TO DATABASE")
     print("-"*80)
 
     async with AsyncSessionLocal() as session:
@@ -292,8 +350,8 @@ async def import_from_csv():
         print(f"    Errors: {error_count}")
         print(f"    Total line items: {total_line_items}")
 
-        # Step 6: Generate snapshots
-        print("\n[6] GENERATING MONTHLY MRR SNAPSHOTS")
+        # Step 7: Generate snapshots
+        print("\n[7] GENERATING MONTHLY MRR SNAPSHOTS")
         print("-"*80)
         from services.invoice import InvoiceService
         from dateutil.relativedelta import relativedelta
@@ -314,14 +372,43 @@ async def import_from_csv():
             except Exception as e:
                 pass
 
+        # Step 8: Create InvoiceSyncStatus to mark import complete
+        print("\n[8] CREATING SYNC STATUS")
+        print("-"*80)
+        from models.invoice import InvoiceSyncStatus
+        from sqlalchemy import delete as sql_delete
+
+        # Clear any existing sync status records
+        await session.execute(sql_delete(InvoiceSyncStatus))
+
+        # Create sync status record with cutoff date from Excel export
+        # This tells API sync: "Everything before 2025-10-13 is imported, only fetch newer"
+        cutoff_date = datetime(2025, 10, 13, 23, 59, 59)  # End of Oct 13
+
+        sync_status = InvoiceSyncStatus(
+            last_sync_time=cutoff_date,
+            invoices_synced=invoice_count,
+            creditnotes_synced=creditnote_count,
+            success=True,
+            error_message=None
+        )
+        session.add(sync_status)
+        await session.commit()
+
+        print(f"  [OK] Created sync status with cutoff: {cutoff_date.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  [OK] Future API syncs will only fetch records modified after {cutoff_date.strftime('%Y-%m-%d')}")
+
         print()
         print("="*80)
         print("IMPORT COMPLETE")
         print("="*80)
-        print(f"Invoices imported: {imported_count}")
-        print(f"Line items imported: {total_line_items}")
+        print(f"Invoices imported: {invoice_count}")
+        print(f"Credit notes imported: {creditnote_count}")
+        print(f"Total line items: {total_line_items}")
         print(f"Snapshots generated: {len(snapshots_created)}")
+        print(f"Sync cutoff date: {cutoff_date.strftime('%Y-%m-%d')}")
+        print(f"\nNEXT STEP: Run API sync to fetch any new invoices/credit notes after {cutoff_date.strftime('%Y-%m-%d')}")
 
 
 if __name__ == "__main__":
-    asyncio.run(import_from_csv())
+    asyncio.run(import_from_excel())

@@ -81,6 +81,7 @@ uvicorn app:app --reload
 - `GET /api/monthly-trends?months=12&use_snapshots=true` - Get month-over-month trends from snapshots
 - `POST /api/generate-historical-snapshots?months_back=12` - Generate snapshots for past months
 - `GET /api/debug-mrr` - Debug endpoint to show detailed MRR calculation
+- `GET /api/gap-analysis/export?month=YYYY-MM` - Download Excel file with complete gap analysis (3 categorized sheets + summary)
 
 ## Key Implementation Notes
 
@@ -134,35 +135,76 @@ The two methods often show different values because:
 
 **PROBLEM DISCOVERED (Oct 2025)**: Credit notes were initially treated as "point dates" (start_date = end_date = credit_note_date), which caused them to NOT affect MRR calculations for future months.
 
-**Example**:
-- Invoice 2008930 issued 2025-01-01 for "Fangstdagbok (år)" = 12 months period (affects Jan 2025 - Jan 2026)
-- Credit Note CN-01802 issued 2025-01-21 to cancel this invoice
-- ❌ **WRONG**: If credit note has point date (2025-01-21), it ONLY affects January 2025
-- ✅ **CORRECT**: Credit note must have SAME period as the product (12 months from 2025-01-21 to 2026-01-20)
+**Example - Real Accounting Scenario**:
+- Invoice 2008930 issued **July 2025** for "Fangstdagbok (år)" = 12 months period (affects Jul 2025 - Jul 2026)
+- Customer cancels in **September 2025** (2 months later)
+- Credit Note CN-01802 issued **September 2025** to cancel this invoice
+- ❌ **WRONG APPROACH 1**: Credit note has point date (Sept 2025) - ONLY affects September 2025
+- ❌ **WRONG APPROACH 2**: Credit note extends Sept 2025 + 12 months = Sept 2026 - Extends BEYOND original invoice period!
+- ✅ **CORRECT**: Credit note period = **Sept 2025 TO July 2026** (matches original invoice END DATE)
 
-**SOLUTION IMPLEMENTED**:
+**Accounting Principle**:
+- Cannot change historical periods that are already invoiced (July-August are locked)
+- Must adjust REMAINING period (Sept 2025 - July 2026) with negative MRR
+- Credit note end date must MATCH the original invoice end date
+
+**SOLUTION IMPLEMENTED (Two-Pass Period Calculation)**:
 ```python
-# In import_invoices_xlsx.py lines 96-112:
-# Credit notes get periods based on Item Name + periodization from parameters.xlsx
-for idx, row in cn_df.iterrows():
-    item_name = str(row.get('Item Name', '')).strip()
-    cn_date = row['Invoice Date']
+# In import_invoices_xlsx.py - TWO-PASS LOGIC:
 
-    if item_name in periodization_map:
-        period_months = periodization_map[item_name]
-        # Start from credit note date, extend forward by period_months
-        start_date = pd.to_datetime(cn_date)
-        end_date = start_date + pd.DateOffset(months=period_months) - pd.DateOffset(days=1)
-        cn_df.at[idx, 'Start Date'] = start_date
-        cn_df.at[idx, 'End Date'] = end_date
+# PASS 1: Calculate all INVOICE periods first (using Item Name + parameters.xlsx)
+for idx, row in combined_df.iterrows():
+    if row['transaction_type'] == 'invoice':
+        item_name = str(row.get('Item Name', '')).strip()
+        invoice_date = row['Invoice Date']
+
+        if item_name in periodization_map:
+            period_months = periodization_map[item_name]
+            start_date = pd.to_datetime(invoice_date)
+            end_date = start_date + pd.DateOffset(months=period_months) - pd.DateOffset(days=1)
+            combined_df.at[idx, 'Start Date'] = start_date
+            combined_df.at[idx, 'End Date'] = end_date
+
+# PASS 2: Match CREDIT NOTE periods to original invoice END DATES
+# Create lookup: Invoice Number -> End Date
+invoice_periods = {}
+for idx, row in combined_df.iterrows():
+    if row['transaction_type'] == 'invoice' and pd.notna(row.get('End Date')):
+        inv_number = str(row['Invoice Number']).strip()
+        end_date = row['End Date']
+        invoice_periods[inv_number] = end_date
+
+# Match credit notes to invoice end dates
+for idx, row in combined_df.iterrows():
+    if row['transaction_type'] == 'creditnote':
+        cn_date = pd.to_datetime(row['Invoice Date'])
+        applied_invoice_num = str(row.get('Applied Invoice Number', '')).strip()
+
+        if applied_invoice_num and applied_invoice_num in invoice_periods:
+            # MATCH FOUND: Use original invoice's end date
+            invoice_end_date = invoice_periods[applied_invoice_num]
+            combined_df.at[idx, 'Start Date'] = cn_date  # Credit note date
+            combined_df.at[idx, 'End Date'] = invoice_end_date  # Original invoice end
+        else:
+            # NO MATCH: Fallback to standard periodization
+            item_name = str(row.get('Item Name', '')).strip()
+            if item_name in periodization_map:
+                period_months = periodization_map[item_name]
+                end_date = cn_date + pd.DateOffset(months=period_months) - pd.DateOffset(days=1)
+                combined_df.at[idx, 'Start Date'] = cn_date
+                combined_df.at[idx, 'End Date'] = end_date
 ```
 
 **IMPACT**:
-- Before fix: MRR gap was +7.9% (invoice MRR too high by 162,000 NOK)
-- After fix: MRR gap is -2.7% (within normal range, only 56,662 NOK difference)
-- Credit notes reduced Invoice MRR by **218,687 NOK** when periods were corrected!
+- **97.8% of credit notes** (2,189 out of 2,238) successfully matched to original invoice end dates
+- Only 2.2% (49 credit notes) used fallback periodization (no matching invoice found)
+- Ensures correct accounting: credit notes reduce MRR for REMAINING period only
 
-**KEY RULE**: Credit notes must ALWAYS have the SAME period logic as invoices. If an invoice covers 12 months, its credit note must also cover 12 months (from credit note date forward).
+**KEY RULE**:
+1. Credit notes must ALWAYS match the END DATE of the original invoice they credit
+2. Use "Applied Invoice Number" field to link credit note to invoice
+3. Credit note period = **FROM credit_note_date TO original_invoice_end_date**
+4. This ensures you cannot "go back in time" in accounting, only adjust future periods
 
 ## ⚠️ CRITICAL - Vessel/Call Sign Matching for MRR Gap Analysis
 
@@ -224,6 +266,15 @@ for idx, row in cn_df.iterrows():
   - Tier 3: vessel_name + customer_name (catches edge cases)
 - ✅ **Database Schema Updates**: Added `vessel_name` and `call_sign` columns to `invoice_line_items` table
 - ✅ **Analysis Scripts**: Created `analyze_mrr_gap.py`, `check_name_mismatches.py`, `export_mrr_details.py`
+- ✅ **Gap Analysis Excel Export**: Added downloadable Excel report with actionable details
+  - 4 sheets: Name Mismatch, Uten Subscription, Uten Faktura, Oversikt (summary)
+  - Endpoint: `GET /api/gap-analysis/export?month=YYYY-MM`
+  - Download button added to Invoice Dashboard
+  - Lists ALL customers with vessel names, call signs, and MRR for follow-up
+- ✅ **Niko AI Gap Analysis Instructions**: Updated Niko to ALWAYS list ALL customers (no limits)
+  - Removed all [:30], [:15], [:10] limits from gap analysis code
+  - Added CRITICAL instructions to list complete customer lists, not just examples
+  - Ensures users get actionable data for system follow-up
 - ✅ **Final Result**: MRR gap reduced to acceptable -2.7% (within normal timing differences)
 
 ### Version 2.1.0 - Niko AI Churn Analysis Improvements
@@ -270,6 +321,12 @@ for idx, row in cn_df.iterrows():
    - GitHub Settings → Installations → Railway → Configure
    - Select "SaaS-Analytics" repository
    - Save and refresh Railway
+
+**Railway PostgreSQL Database**:
+- **External URL**: `postgresql://postgres:fmjvxOqkfPbPDxegQwAaxkkgiigmEceO@shuttle.proxy.rlwy.net:36131/railway`
+- **Internal URL** (Railway network only): `postgresql://postgres:fmjvxOqkfPbPDxegQwAaxkkgiigmEceO@postgres.railway.internal:5432/railway`
+- Use external URL for local connections and data imports
+- Use internal URL automatically set by Railway for production deployments
 
 **Required Environment Variables for Production**:
 ```

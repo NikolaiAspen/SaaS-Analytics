@@ -132,3 +132,110 @@ class InvoiceMRRSnapshot(Base):
 
     def __repr__(self):
         return f"<InvoiceMRRSnapshot {self.month} - MRR: {self.mrr} NOK>"
+
+
+class CreditNote(Base):
+    """
+    Credit Note model - stores credit notes from Zoho Billing
+    Used to identify credited invoices (e.g., due to ownership changes)
+    """
+    __tablename__ = "credit_notes"
+
+    id = Column(String, primary_key=True)  # creditnote_id from Zoho
+    creditnote_number = Column(String, nullable=False, index=True, unique=True)
+    creditnote_date = Column(DateTime, nullable=False, index=True)
+
+    # Reference to original invoice
+    invoice_id = Column(String, index=True)  # Zoho invoice_id
+    invoice_number = Column(String, index=True)  # Invoice number that was credited
+    reference_number = Column(String)
+
+    # Customer info
+    customer_id = Column(String, nullable=False, index=True)
+    customer_name = Column(String, nullable=False)
+
+    # Vessel info (for matching)
+    vessel_name = Column(String, index=True, nullable=True)  # creditnote.CF.Fartøy
+    call_sign = Column(String, index=True, nullable=True)  # creditnote.CF.RKAL
+
+    # Financial
+    currency_code = Column(String, default="NOK")
+    total = Column(Float, default=0.0)  # Total credit amount
+    balance = Column(Float, default=0.0)  # Remaining balance
+
+    # Status
+    status = Column(String, index=True)  # open, closed, void
+
+    # Metadata
+    created_time = Column(DateTime)
+    last_synced = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<CreditNote {self.creditnote_number} - {self.customer_name} - {self.total} {self.currency_code}>"
+
+
+class CreditNoteLineItem(Base):
+    """
+    Credit Note line item - individual line items on a credit note
+    Links credit notes to specific invoice line items
+    """
+    __tablename__ = "credit_note_line_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    creditnote_id = Column(String, ForeignKey("credit_notes.id"), nullable=False, index=True)
+
+    # Line item details
+    item_id = Column(String)  # Zoho item_id
+    product_id = Column(String, index=True)
+
+    # Product info
+    name = Column(String, nullable=False)
+    description = Column(Text)
+    code = Column(String)
+
+    # Vessel info
+    vessel_name = Column(String, index=True, nullable=True)
+    call_sign = Column(String, index=True, nullable=True)
+
+    # Pricing (negative values)
+    price = Column(Float, nullable=False)  # Negative amount
+    quantity = Column(Integer, default=1)
+    item_total = Column(Float, nullable=False)
+
+    # Tax
+    tax_percentage = Column(Float, default=0.0)
+    tax_name = Column(String)
+
+    # MRR impact (calculated from period)
+    period_start_date = Column(DateTime, index=True)
+    period_end_date = Column(DateTime, index=True)
+    period_months = Column(Integer)
+    mrr_per_month = Column(Float)  # Negative value
+
+    # Metadata
+    created_time = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    credit_note = relationship("CreditNote", backref="line_items")
+
+    def __repr__(self):
+        return f"<CreditNoteLineItem {self.name} - {self.price}>"
+
+
+class InvoiceSyncStatus(Base):
+    """
+    Track last sync time for invoices and credit notes
+    Used for incremental sync (only fetch changes since last sync)
+    """
+    __tablename__ = "invoice_sync_status"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    last_sync_time = Column(DateTime, nullable=False)
+    invoices_synced = Column(Integer, default=0)
+    creditnotes_synced = Column(Integer, default=0)
+    success = Column(Boolean, default=True)
+    error_message = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<InvoiceSyncStatus {self.last_sync_time} - {self.invoices_synced} invoices, {self.creditnotes_synced} credit notes>"
