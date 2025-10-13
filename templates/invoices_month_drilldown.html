@@ -188,6 +188,17 @@
             background: rgba(255, 107, 107, 0.05);
         }
 
+        .creditnote-subrow {
+            background: rgba(255, 107, 107, 0.03);
+            border-left: 3px solid var(--bad);
+        }
+
+        .creditnote-subrow td {
+            padding-left: 24px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
         .creditnote-badge {
             background: var(--bad);
             color: white;
@@ -203,6 +214,15 @@
 
         .positive-amount {
             color: var(--good);
+        }
+
+        .net-mrr {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .has-creditnotes {
+            border-left: 2px solid var(--warn);
         }
 
         @media (max-width: 768px) {
@@ -297,7 +317,8 @@
                     </thead>
                     <tbody>
                         {% for item in line_items %}
-                        <tr class="{% if item.transaction_type == 'creditnote' %}creditnote{% endif %}">
+                        {# Main invoice row #}
+                        <tr class="{% if item.transaction_type == 'creditnote' %}creditnote{% elif item.related_creditnotes %}has-creditnotes{% endif %}">
                             <td>{{ item.invoice_number }}</td>
                             <td>{{ item.invoice_date.strftime('%d.%m.%Y') if item.invoice_date else '' }}</td>
                             <td>
@@ -305,6 +326,11 @@
                                 <span class="creditnote-badge">KREDITNOTA</span>
                                 {% else %}
                                 Faktura
+                                {% if item.related_creditnotes %}
+                                <span style="color: var(--warn); font-size: 11px; margin-left: 6px;">
+                                    ({{ item.related_creditnotes|length }} kreditnota{% if item.related_creditnotes|length > 1 %}er{% endif %})
+                                </span>
+                                {% endif %}
                                 {% endif %}
                             </td>
                             <td>{{ item.customer_name }}</td>
@@ -318,9 +344,42 @@
                                 {{ "%.2f"|format(item.item_total) }} kr
                             </td>
                             <td class="number {% if item.mrr_per_month < 0 %}negative-amount{% else %}positive-amount{% endif %}">
+                                {% if item.related_creditnotes %}
+                                {# Show net MRR (invoice + credit notes) #}
+                                {% set total_cn_mrr = item.related_creditnotes|sum(attribute='mrr_per_month') %}
+                                {% set net_mrr = item.mrr_per_month + total_cn_mrr %}
+                                <span class="net-mrr {% if net_mrr < 0 %}negative-amount{% else %}positive-amount{% endif %}" title="Netto: {{ '%.2f'|format(item.mrr_per_month) }} + ({{ '%.2f'|format(total_cn_mrr) }}) = {{ '%.2f'|format(net_mrr) }}">
+                                    {{ "%.2f"|format(net_mrr) }} kr
+                                </span>
+                                {% else %}
                                 {{ "%.2f"|format(item.mrr_per_month) }} kr
+                                {% endif %}
                             </td>
                         </tr>
+
+                        {# Related credit note sub-rows #}
+                        {% if item.related_creditnotes %}
+                            {% for cn in item.related_creditnotes %}
+                            <tr class="creditnote-subrow">
+                                <td style="padding-left: 30px;">└ {{ cn.invoice_number }}</td>
+                                <td>{{ cn.invoice_date.strftime('%d.%m.%Y') if cn.invoice_date else '' }}</td>
+                                <td><span class="creditnote-badge">KREDITNOTA</span></td>
+                                <td>{{ cn.customer_name }}</td>
+                                <td>{{ cn.vessel_name }}</td>
+                                <td>{{ cn.call_sign }}</td>
+                                <td>{{ cn.item_name }}</td>
+                                <td>{{ cn.period_start.strftime('%d.%m.%Y') if cn.period_start else '' }}</td>
+                                <td>{{ cn.period_end.strftime('%d.%m.%Y') if cn.period_end else '' }}</td>
+                                <td class="number">{{ cn.period_months }}</td>
+                                <td class="number negative-amount">
+                                    {{ "%.2f"|format(cn.item_total) }} kr
+                                </td>
+                                <td class="number negative-amount">
+                                    {{ "%.2f"|format(cn.mrr_per_month) }} kr
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% endif %}
                         {% endfor %}
                     </tbody>
                 </table>

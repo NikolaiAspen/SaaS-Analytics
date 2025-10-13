@@ -2959,11 +2959,29 @@ async def sync_invoices(
     """
     try:
         import httpx
-        from models.invoice import Invoice, InvoiceLineItem
+        from models.invoice import Invoice, InvoiceLineItem, InvoiceSyncStatus
         from services.invoice import InvoiceService
+        from sqlalchemy import select, desc
 
         invoice_service = InvoiceService(session)
         headers = await zoho._get_headers()
+
+        # Check last sync time for incremental sync
+        stmt = select(InvoiceSyncStatus).order_by(desc(InvoiceSyncStatus.last_sync_time)).limit(1)
+        result = await session.execute(stmt)
+        last_sync_record = result.scalar_one_or_none()
+
+        # Default to 2025-10-12 if no previous sync (CSV import covers until Oct 12)
+        if last_sync_record and last_sync_record.success:
+            last_sync_time = last_sync_record.last_sync_time
+            print(f"Incremental sync: fetching changes since {last_sync_time.isoformat()}")
+        else:
+            # First sync or previous sync failed - start from Oct 12, 2025
+            last_sync_time = datetime(2025, 10, 12, 0, 0, 0)
+            print(f"First sync: fetching all changes since {last_sync_time.isoformat()} (CSV import cutoff)")
+
+        # Format for Zoho API (ISO format)
+        last_modified_time = last_sync_time.strftime("%Y-%m-%dT%H:%M:%S+0100")
 
         # Fetch invoices from Zoho
         print("Fetching invoices from Zoho...")
@@ -2977,7 +2995,11 @@ async def sync_invoices(
                 response = await client.get(
                     f"{zoho.base_url}/billing/v1/invoices",
                     headers=headers,
-                    params={"per_page": per_page, "page": page}
+                    params={
+                        "per_page": per_page,
+                        "page": page,
+                        "last_modified_time": last_modified_time
+                    }
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -2997,10 +3019,30 @@ async def sync_invoices(
 
             # Process each invoice and get full details
             synced_count = 0
+            skipped_count = 0
             total_invoices = len(all_invoices)
 
-            for inv_data in all_invoices:
+            for idx, inv_data in enumerate(all_invoices, 1):
                 invoice_id = inv_data["invoice_id"]
+
+                # Check if invoice exists and hasn't changed (optimization)
+                existing_invoice = await session.get(Invoice, invoice_id)
+                if existing_invoice:
+                    # Parse updated_time from Zoho
+                    zoho_updated = inv_data.get("last_modified_time") or inv_data.get("updated_time")
+                    if zoho_updated:
+                        try:
+                            from dateutil import parser
+                            zoho_updated_dt = parser.parse(zoho_updated).replace(tzinfo=None)
+
+                            # Skip if not modified since last sync
+                            if existing_invoice.updated_time and zoho_updated_dt <= existing_invoice.updated_time:
+                                skipped_count += 1
+                                if idx % 50 == 0:
+                                    print(f"Progress: {idx}/{total_invoices} ({skipped_count} skipped, {synced_count} updated)")
+                                continue
+                        except:
+                            pass  # If parsing fails, fetch the invoice
 
                 # Get full invoice details including line items
                 detail_response = await client.get(
@@ -3010,9 +3052,9 @@ async def sync_invoices(
                 detail_response.raise_for_status()
                 invoice_detail = detail_response.json().get("invoice", {})
 
-                # Rate limiting: sleep 0.3s between requests to avoid 429 errors
+                # Rate limiting: sleep 0.1s between requests (reduced from 0.3s)
                 import asyncio
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.1)
 
                 # Parse dates
                 def parse_date(date_str):
@@ -3124,7 +3166,189 @@ async def sync_invoices(
                     print(f"Progress: {synced_count}/{total_invoices} invoices ({progress_pct:.1f}%)")
 
             await session.commit()
-            print(f"✓ Synced {synced_count} invoices with line items")
+            print(f"✓ Synced {synced_count} invoices, skipped {skipped_count} unchanged")
+
+        # Sync credit notes
+        print("\nFetching credit notes from Zoho...")
+        from models.invoice import CreditNote, CreditNoteLineItem
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            # Get all credit notes (paginated)
+            all_creditnotes = []
+            page = 1
+            per_page = 200
+
+            while True:
+                response = await client.get(
+                    f"{zoho.base_url}/billing/v1/creditnotes",
+                    headers=headers,
+                    params={
+                        "per_page": per_page,
+                        "page": page,
+                        "last_modified_time": last_modified_time
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                creditnotes = data.get("creditnotes", [])
+                if not creditnotes:
+                    break
+
+                all_creditnotes.extend(creditnotes)
+
+                if len(creditnotes) < per_page:
+                    break
+
+                page += 1
+
+            print(f"Fetched {len(all_creditnotes)} credit notes from Zoho")
+
+            # Process each credit note
+            cn_synced_count = 0
+            cn_skipped_count = 0
+            total_creditnotes = len(all_creditnotes)
+
+            for idx, cn_data in enumerate(all_creditnotes, 1):
+                creditnote_id = cn_data["creditnote_id"]
+
+                # Check if credit note exists and hasn't changed (optimization)
+                existing_cn = await session.get(CreditNote, creditnote_id)
+                if existing_cn:
+                    # Parse updated_time from Zoho
+                    zoho_updated = cn_data.get("last_modified_time")
+                    if zoho_updated:
+                        try:
+                            from dateutil import parser
+                            zoho_updated_dt = parser.parse(zoho_updated).replace(tzinfo=None)
+
+                            # Skip if not modified since last sync
+                            if existing_cn.last_synced and zoho_updated_dt <= existing_cn.last_synced:
+                                cn_skipped_count += 1
+                                if idx % 50 == 0:
+                                    print(f"Progress: {idx}/{total_creditnotes} ({cn_skipped_count} skipped, {cn_synced_count} updated)")
+                                continue
+                        except:
+                            pass  # If parsing fails, fetch the credit note
+
+                # Get full credit note details including line items
+                detail_response = await client.get(
+                    f"{zoho.base_url}/billing/v1/creditnotes/{creditnote_id}",
+                    headers=headers
+                )
+                detail_response.raise_for_status()
+                cn_detail = detail_response.json().get("creditnote", {})
+
+                # Rate limiting (reduced from 0.3s)
+                import asyncio
+                await asyncio.sleep(0.1)
+
+                # Parse dates
+                cn_date = parse_date(cn_detail.get("date"))
+                created_time = parse_date(cn_detail.get("created_time"))
+
+                # Extract invoice reference
+                invoice_id = cn_detail.get("invoice_id", "")
+                invoice_number = ""
+                invoices_list = cn_detail.get("invoices", [])
+                if invoices_list:
+                    invoice_number = invoices_list[0].get("invoice_number", "")
+
+                # Extract vessel info from custom fields
+                vessel_name = None
+                call_sign = None
+                custom_fields = cn_detail.get("custom_fields", [])
+                for field in custom_fields:
+                    if field.get("label") == "Fartøy" or field.get("customfield_id") == "creditnote.CF.Fartøy":
+                        vessel_name = field.get("value", "").strip()
+                    elif field.get("label") == "RKAL" or field.get("customfield_id") == "creditnote.CF.RKAL":
+                        call_sign = field.get("value", "").strip()
+
+                # Create or update credit note
+                credit_note = await session.get(CreditNote, creditnote_id)
+
+                if credit_note:
+                    # Update existing
+                    credit_note.creditnote_number = cn_detail.get("creditnote_number", "")
+                    credit_note.creditnote_date = cn_date
+                    credit_note.invoice_id = invoice_id
+                    credit_note.invoice_number = invoice_number
+                    credit_note.reference_number = cn_detail.get("reference_number", "")
+                    credit_note.customer_id = cn_detail.get("customer_id", "")
+                    credit_note.customer_name = cn_detail.get("customer_name", "")
+                    credit_note.vessel_name = vessel_name
+                    credit_note.call_sign = call_sign
+                    credit_note.currency_code = cn_detail.get("currency_code", "NOK")
+                    credit_note.total = float(cn_detail.get("total", 0))
+                    credit_note.balance = float(cn_detail.get("balance", 0))
+                    credit_note.status = cn_detail.get("status", "")
+                    credit_note.created_time = created_time
+                    credit_note.last_synced = datetime.utcnow()
+                else:
+                    # Create new
+                    credit_note = CreditNote(
+                        id=creditnote_id,
+                        creditnote_number=cn_detail.get("creditnote_number", ""),
+                        creditnote_date=cn_date,
+                        invoice_id=invoice_id,
+                        invoice_number=invoice_number,
+                        reference_number=cn_detail.get("reference_number", ""),
+                        customer_id=cn_detail.get("customer_id", ""),
+                        customer_name=cn_detail.get("customer_name", ""),
+                        vessel_name=vessel_name,
+                        call_sign=call_sign,
+                        currency_code=cn_detail.get("currency_code", "NOK"),
+                        total=float(cn_detail.get("total", 0)),
+                        balance=float(cn_detail.get("balance", 0)),
+                        status=cn_detail.get("status", ""),
+                        created_time=created_time,
+                    )
+                    session.add(credit_note)
+
+                # Process line items
+                cn_line_items = cn_detail.get("line_items", [])
+
+                # Delete existing line items for this credit note
+                stmt_delete = delete(CreditNoteLineItem).where(CreditNoteLineItem.creditnote_id == creditnote_id)
+                await session.execute(stmt_delete)
+
+                # Create new line items
+                for item_data in cn_line_items:
+                    # Calculate MRR impact (use same calculation as invoices)
+                    item_data["invoice_date"] = cn_date  # Use credit note date as reference
+                    mrr_calc = invoice_service.calculate_mrr_from_line_item(item_data)
+
+                    cn_line_item = CreditNoteLineItem(
+                        creditnote_id=creditnote_id,
+                        item_id=item_data.get("item_id", ""),
+                        product_id=item_data.get("product_id", ""),
+                        name=item_data.get("name", ""),
+                        description=item_data.get("description", ""),
+                        code=item_data.get("code", ""),
+                        vessel_name=vessel_name,  # Inherit from credit note
+                        call_sign=call_sign,  # Inherit from credit note
+                        price=float(item_data.get("price", 0)) * -1,  # Make negative
+                        quantity=int(item_data.get("quantity", 1)),
+                        item_total=float(item_data.get("item_total", 0)) * -1,  # Make negative
+                        tax_percentage=float(item_data.get("tax_percentage", 0)),
+                        tax_name=item_data.get("tax_name", ""),
+                        period_start_date=mrr_calc["period_start_date"],
+                        period_end_date=mrr_calc["period_end_date"],
+                        period_months=mrr_calc["period_months"],
+                        mrr_per_month=mrr_calc["mrr_per_month"] * -1,  # Make negative
+                    )
+                    session.add(cn_line_item)
+
+                cn_synced_count += 1
+
+                # Commit and log progress periodically
+                if cn_synced_count % 50 == 0:
+                    await session.commit()
+                    progress_pct = (cn_synced_count / total_creditnotes) * 100 if total_creditnotes > 0 else 0
+                    print(f"Progress: {cn_synced_count}/{total_creditnotes} credit notes ({progress_pct:.1f}%)")
+
+            await session.commit()
+            print(f"✓ Synced {cn_synced_count} credit notes with line items")
 
         # Generate monthly snapshots for last 12 months
         print("\nGenerating monthly MRR snapshots...")
@@ -3144,11 +3368,23 @@ async def sync_invoices(
 
         print(f"✓ Generated {len(snapshots_created)} monthly snapshots")
 
+        # Save sync status
+        sync_status = InvoiceSyncStatus(
+            last_sync_time=datetime.utcnow(),
+            invoices_synced=synced_count,
+            creditnotes_synced=cn_synced_count,
+            success=True
+        )
+        session.add(sync_status)
+        await session.commit()
+        print(f"✓ Saved sync status")
+
         return {
             "status": "success",
             "synced_invoices": synced_count,
+            "synced_creditnotes": cn_synced_count,
             "snapshots_created": len(snapshots_created),
-            "message": f"Successfully synced {synced_count} invoices and generated {len(snapshots_created)} monthly snapshots",
+            "message": f"Successfully synced {synced_count} invoices, {cn_synced_count} credit notes, and generated {len(snapshots_created)} monthly snapshots",
         }
 
     except Exception as e:
@@ -3226,6 +3462,46 @@ async def invoices_trends(request: Request, session: AsyncSession = Depends(get_
         raise HTTPException(status_code=500, detail=f"Invoice trends failed: {str(e)}")
 
 
+@app.get("/api/gap-analysis/export")
+async def export_gap_analysis(
+    month: str = None,
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Export gap analysis to Excel file with 4 sheets:
+    1. Name Mismatch - customers with name mismatch (subscription exists)
+    2. Uten Subscription - customers truly without subscription
+    3. Uten Faktura - customers with subscription but no invoice
+    4. Oversikt - summary
+    """
+    from fastapi.responses import StreamingResponse
+    from export_gap_analysis import export_gap_to_excel
+
+    try:
+        # Use current month if not specified
+        if not month:
+            month = datetime.utcnow().strftime("%Y-%m")
+
+        # Generate Excel file
+        excel_file = await export_gap_to_excel(month)
+
+        # Return as downloadable file
+        filename = f"gap_analysis_{month}.xlsx"
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+
+    except Exception as e:
+        import traceback
+        error_detail = f"Gap analysis export failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        print(error_detail)
+        raise HTTPException(status_code=500, detail=f"Gap analysis export failed: {str(e)}")
+
+
 @app.get("/api/invoices/month-drilldown", response_class=HTMLResponse)
 async def invoices_month_drilldown(
     request: Request,
@@ -3260,15 +3536,20 @@ async def invoices_month_drilldown(
         result = await session.execute(stmt)
         rows = result.all()
 
-        # Build line items list with invoice details
-        line_items = []
+        # Build line items list with invoice details and group credit notes with invoices
+        from collections import defaultdict
+
+        # First pass: separate invoices and credit notes
+        invoices_dict = {}  # key: (customer, product, period) -> invoice data
+        creditnotes_list = []  # List of credit notes to match
+
         total_mrr = 0
 
         for line_item, invoice in rows:
             mrr = line_item.mrr_per_month or 0
             total_mrr += mrr
 
-            line_items.append({
+            item_data = {
                 'invoice_number': invoice.invoice_number,
                 'invoice_date': invoice.invoice_date,
                 'customer_name': invoice.customer_name,
@@ -3282,7 +3563,47 @@ async def invoices_month_drilldown(
                 'period_months': line_item.period_months or 1,
                 'item_total': line_item.item_total or 0,
                 'mrr_per_month': mrr,
-            })
+                'related_creditnotes': [],  # Will hold matched credit notes
+            }
+
+            if invoice.transaction_type == 'invoice':
+                # Store invoice for matching
+                key = (invoice.customer_name, line_item.name, line_item.period_end_date)
+                invoices_dict[key] = item_data
+            else:
+                # Store credit note for later matching
+                creditnotes_list.append(item_data)
+
+        # Second pass: match credit notes to invoices
+        unmatched_creditnotes = []
+        for cn in creditnotes_list:
+            # Try to match credit note to invoice by:
+            # 1. Same customer
+            # 2. Same product name
+            # 3. Same or overlapping period_end_date
+            matched = False
+            key = (cn['customer_name'], cn['item_name'], cn['period_end'])
+
+            if key in invoices_dict:
+                # Exact match found!
+                invoices_dict[key]['related_creditnotes'].append(cn)
+                matched = True
+            else:
+                # Try fuzzy matching: same customer + product, similar period
+                for inv_key, inv_data in invoices_dict.items():
+                    if (inv_data['customer_name'] == cn['customer_name'] and
+                        inv_data['item_name'] == cn['item_name'] and
+                        inv_data['period_end'] and cn['period_end'] and
+                        abs((inv_data['period_end'] - cn['period_end']).days) <= 5):  # Within 5 days
+                        inv_data['related_creditnotes'].append(cn)
+                        matched = True
+                        break
+
+            if not matched:
+                unmatched_creditnotes.append(cn)
+
+        # Build final line_items list: invoices with their credit notes + unmatched credit notes
+        line_items = list(invoices_dict.values()) + unmatched_creditnotes
 
         # Count unique customers and invoices
         unique_customers = len(set(item['customer_name'] for item in line_items))
