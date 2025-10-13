@@ -197,8 +197,9 @@
             <strong>ℹ️ Om Faktura-basert MRR (BETA):</strong> Dette dashboardet er under utvikling og beregner MRR basert på fakturaer fra Zoho Billing, ikke subscriptions. MRR beregnes fra fakturaperiodens lengde i beskrivelsesfeltet. Vær oppmerksom på at beregningene kan være ufullstendige.
         </div>
 
-        <div style="margin-bottom: 16px;">
+        <div style="margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
             <button onclick="syncInvoices()" style="background: var(--good); border: none; color: #0b1020; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500;">🔄 Synkroniser fakturaer fra Zoho</button>
+            <button onclick="showGapAnalysisModal()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; color: var(--ink); padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500;">📥 Last ned Gap-analyse (Excel)</button>
         </div>
         <div id="syncStatus" style="display: none; margin-top: 12px; padding: 12px; border-radius: 10px; font-size: 14px;"></div>
 
@@ -234,24 +235,69 @@
         <div class="card">
             <h2>📊 Hvordan MRR beregnes fra fakturaer</h2>
             <p style="color: var(--muted); line-height: 1.7; margin-bottom: 12px;">
-                MRR beregnes ved å analysere <strong>beskrivelsesfeltet</strong> på hver fakturalinje for å finne fakturaperioden:
+                MRR beregnes ved hjelp av en to-pass algoritme som sikrer korrekt periodisering:
             </p>
-            <ul style="color: var(--muted); margin-left: 20px; line-height: 1.8;">
-                <li><strong>Norsk format:</strong> "Gjelder perioden 10 Oct 2025 til 09 Nov 2025" → 1 måned</li>
-                <li><strong>Engelsk format:</strong> "Charges for this duration (from 10-October-2025 to 9-October-2026)" → 12 måneder</li>
-                <li><strong>Beregning:</strong> MRR = Pris ÷ Antall måneder i periode</li>
-            </ul>
+
+            <div style="margin-bottom: 20px;">
+                <h3 style="color: var(--ink); font-size: 16px; margin-bottom: 10px;">🔹 Pass 1: Fakturaer</h3>
+                <ul style="color: var(--muted); margin-left: 20px; line-height: 1.8;">
+                    <li><strong>Start Date & End Date:</strong> Bruker perioderkolonner direkte fra Excel-eksport</li>
+                    <li><strong>Periodiseringstabell (parameters.xlsx):</strong> Matcher produktnavn til standard perioder (1, 3, 6, 12 mnd)</li>
+                    <li><strong>Beregning:</strong> MRR = Pris ÷ Standard periodisering</li>
+                </ul>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h3 style="color: var(--ink); font-size: 16px; margin-bottom: 10px;">🔹 Pass 2: Kreditnotaer</h3>
+                <ul style="color: var(--muted); margin-left: 20px; line-height: 1.8;">
+                    <li><strong>Matching:</strong> Bruker "Applied Invoice Number" for å matche til originalfaktura</li>
+                    <li><strong>Periode:</strong> Sluttdato settes til samme som originalfaktura (ikke standard periodisering)</li>
+                    <li><strong>Faktiske måneder:</strong> Beregner gjenstående måneder fra kreditnota-dato til faktura slutt</li>
+                    <li><strong>Beregning:</strong> MRR = Negativt beløp ÷ Faktiske gjenstående måneder</li>
+                </ul>
+            </div>
+
             <div style="background: rgba(61, 220, 151, 0.1); padding: 12px 16px; border-radius: 10px; margin-top: 16px; border-left: 3px solid var(--good);">
-                <strong style="color: var(--good);">✓ Eksempel:</strong>
+                <strong style="color: var(--good);">✓ Eksempel (Faktura):</strong>
                 <p style="color: var(--muted); margin-top: 8px; line-height: 1.6;">
-                    Faktura på <strong>8280 NOK</strong> for periode <strong>10 Oct 2025 til 09 Oct 2026</strong> (12 måneder)<br>
-                    → MRR = 8280 ÷ 12 = <strong style="color: var(--good);">690 NOK/mnd</strong>
+                    Faktura på <strong>11,880 NOK</strong> utstedt <strong>1. juli 2025</strong> for "Fangstdagbok (år)" (12 måneder)<br>
+                    Periode: 1. juli 2025 til 30. juni 2026<br>
+                    → MRR = 11,880 ÷ 12 = <strong style="color: var(--good);">+990 NOK/mnd</strong>
+                </p>
+            </div>
+
+            <div style="background: rgba(255, 107, 107, 0.1); padding: 12px 16px; border-radius: 10px; margin-top: 12px; border-left: 3px solid var(--bad);">
+                <strong style="color: var(--bad);">✓ Eksempel (Kreditnota):</strong>
+                <p style="color: var(--muted); margin-top: 8px; line-height: 1.6;">
+                    Kreditnota på <strong>-11,880 NOK</strong> utstedt <strong>1. september 2025</strong><br>
+                    Matchet til originalfaktura med sluttdato: 30. juni 2026<br>
+                    Gjenstående måneder: September 2025 til Juni 2026 = <strong>10 måneder</strong><br>
+                    → MRR = -11,880 ÷ 10 = <strong style="color: var(--bad);">-1,188 NOK/mnd</strong> (ikke -990!)<br>
+                    <em style="font-size: 12px; display: block; margin-top: 6px;">Regnskapsprinsipp: Kan ikke endre historiske perioder (juli-august), må oppjustere gjenstående periode</em>
                 </p>
             </div>
         </div>
 
         <div style="margin-top: 20px;">
             <a href="/api/invoices/trends" class="button btn-primary">📈 Se månedlige trender →</a>
+        </div>
+    </div>
+
+    <!-- Gap Analysis Month Selector Modal -->
+    <div id="gapAnalysisModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 9999; align-items: center; justify-content: center;">
+        <div style="background: var(--panel); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 18px; padding: 30px; max-width: 400px; width: 90%;">
+            <h2 style="margin: 0 0 20px 0; font-size: 22px; color: var(--ink);">📥 Last ned Gap-analyse</h2>
+            <p style="color: var(--muted); margin-bottom: 20px; line-height: 1.6;">Velg hvilken måned du vil analysere forskjeller mellom subscription-MRR og faktura-MRR:</p>
+
+            <div style="margin-bottom: 24px;">
+                <label for="gapMonth" style="display: block; color: var(--muted); font-size: 14px; margin-bottom: 8px; font-weight: 500;">Måned:</label>
+                <input type="month" id="gapMonth" value="{{ metrics.snapshot_date.strftime('%Y-%m') }}" style="width: 100%; background: #0f1530; border: 1px solid rgba(255, 255, 255, 0.12); color: var(--ink); padding: 12px 16px; border-radius: 10px; font-size: 16px; font-family: inherit;">
+            </div>
+
+            <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                <button onclick="closeGapAnalysisModal()" style="background: transparent; border: 1px solid rgba(255, 255, 255, 0.12); color: var(--muted); padding: 10px 20px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 500;">Avbryt</button>
+                <button onclick="downloadGapAnalysis()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; color: var(--ink); padding: 10px 20px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 500;">Last ned Excel</button>
+            </div>
         </div>
     </div>
 
@@ -283,6 +329,43 @@
                 statusDiv.innerHTML = `❌ Feil: ${error.message}`;
             }
         }
+
+        function showGapAnalysisModal() {
+            const modal = document.getElementById('gapAnalysisModal');
+            modal.style.display = 'flex';
+        }
+
+        function closeGapAnalysisModal() {
+            const modal = document.getElementById('gapAnalysisModal');
+            modal.style.display = 'none';
+        }
+
+        function downloadGapAnalysis() {
+            const monthInput = document.getElementById('gapMonth');
+            const selectedMonth = monthInput.value;
+
+            if (!selectedMonth) {
+                alert('Vennligst velg en måned');
+                return;
+            }
+
+            // Create download URL with selected month
+            const downloadUrl = `/api/gap-analysis/export?month=${selectedMonth}`;
+
+            // Close modal
+            closeGapAnalysisModal();
+
+            // Trigger download
+            window.location.href = downloadUrl;
+        }
+
+        // Close modal when clicking outside
+        document.addEventListener('click', function(event) {
+            const modal = document.getElementById('gapAnalysisModal');
+            if (event.target === modal) {
+                closeGapAnalysisModal();
+            }
+        });
     </script>
 </body>
 </html>
