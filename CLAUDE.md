@@ -376,10 +376,11 @@ mrr_per_month = item_total / actual_period_months
    - Save and refresh Railway
 
 **Railway PostgreSQL Database**:
-- **External URL**: `postgresql://postgres:fmjvxOqkfPbPDxegQwAaxkkgiigmEceO@shuttle.proxy.rlwy.net:36131/railway`
-- **Internal URL** (Railway network only): `postgresql://postgres:fmjvxOqkfPbPDxegQwAaxkkgiigmEceO@postgres.railway.internal:5432/railway`
-- Use external URL for local connections and data imports
+- **External URL**: Set in Railway dashboard under "Variables" tab
+- **Internal URL** (Railway network only): Auto-configured by Railway as `DATABASE_URL` environment variable
+- Use external URL for local connections and data imports (retrieve from Railway dashboard)
 - Use internal URL automatically set by Railway for production deployments
+- **IMPORTANT**: Never commit actual database URLs with passwords to git!
 
 **Required Environment Variables for Production**:
 ```
