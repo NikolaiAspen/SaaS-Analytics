@@ -200,11 +200,64 @@ for idx, row in combined_df.iterrows():
 - Only 2.2% (49 credit notes) used fallback periodization (no matching invoice found)
 - Ensures correct accounting: credit notes reduce MRR for REMAINING period only
 
-**KEY RULE**:
+**MRR CALCULATION - CRITICAL DIFFERENCE**:
+
+For **INVOICES**:
+- Period months = From parameters.xlsx (e.g., 12 months for "Fangstdagbok (år)")
+- MRR = item_total / period_months
+- Example: 11,880 kr / 12 months = 990 kr/month
+
+For **CREDIT NOTES**:
+- Period months = ACTUAL months from credit note date to invoice end date
+- MRR = item_total / actual_remaining_months
+- Example: -11,880 kr / 10 months (Sept 2025 - June 2026) = -1,188 kr/month (NOT -990!)
+
+**Why this matters - Real example**:
+```
+July 2025:
+  - Invoice: 11,880 kr, 12 months (July 2025 - June 2026)
+  - MRR: 11,880 / 12 = 990 kr/month
+
+September 2025 (customer cancels):
+  - Credit Note: -11,880 kr (full amount)
+  - Period: September 2025 - June 2026 (matches invoice end)
+  - Remaining months: 10 (not 12!)
+  - MRR: -11,880 / 10 = -1,188 kr/month
+
+Result:
+  July 2025:       +990 kr   (invoice only)
+  August 2025:     +990 kr   (invoice only)
+  September 2025:  -198 kr   (+990 invoice - 1,188 credit note)
+  October 2025:    -198 kr
+  ...
+  June 2026:       -198 kr
+  Total net:       0 kr ✅   (1,980 + (-1,980) = 0)
+```
+
+**Implementation** (import_invoices_xlsx.py):
+```python
+if trans_type == 'creditnote' and period_start_date and period_end_date:
+    # Calculate ACTUAL months between start and end
+    months_diff = (period_end_date.year - period_start_date.year) * 12 + \
+                  (period_end_date.month - period_start_date.month)
+    if period_end_date.day >= period_start_date.day:
+        months_diff += 1
+    actual_period_months = max(1, months_diff)
+else:
+    # For invoices: use standard periodization from parameters
+    actual_period_months = period_months_from_params
+
+# Calculate MRR using ACTUAL period months
+mrr_per_month = item_total / actual_period_months
+```
+
+**KEY RULES**:
 1. Credit notes must ALWAYS match the END DATE of the original invoice they credit
 2. Use "Applied Invoice Number" field to link credit note to invoice
 3. Credit note period = **FROM credit_note_date TO original_invoice_end_date**
-4. This ensures you cannot "go back in time" in accounting, only adjust future periods
+4. Credit note MRR = **item_total / ACTUAL_remaining_months** (NOT parameters period!)
+5. This ensures you cannot "go back in time" in accounting, only adjust future periods
+6. Total MRR impact nets to zero when subscription is fully cancelled
 
 ## ⚠️ CRITICAL - Vessel/Call Sign Matching for MRR Gap Analysis
 

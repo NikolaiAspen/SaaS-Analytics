@@ -294,12 +294,31 @@ async def import_from_excel():
                     period_start_date = parse_date(item_row.get('Start Date'))
                     period_end_date = parse_date(item_row.get('End Date'))
 
-                    # Get period_months from parameters mapping
+                    # Get period_months from parameters mapping (for invoices)
                     # This is the AUTHORITATIVE source for periodization
-                    period_months = periodization_map.get(item_name, 12)  # Default to 12 if not found
+                    period_months_from_params = periodization_map.get(item_name, 12)  # Default to 12 if not found
 
-                    # Calculate MRR using the correct periodization
-                    mrr_per_month = item_total / period_months
+                    # For CREDIT NOTES: Calculate actual months in the period (remaining months)
+                    # For INVOICES: Use period_months from parameters
+                    if trans_type == 'creditnote' and period_start_date and period_end_date:
+                        # Calculate actual number of months between start and end date
+                        # Example: Sept 2025 to June 2026 = 10 months (not 12!)
+                        months_diff = (period_end_date.year - period_start_date.year) * 12 + \
+                                      (period_end_date.month - period_start_date.month)
+                        # Add 1 to include both start and end month
+                        if period_end_date.day >= period_start_date.day:
+                            months_diff += 1
+                        actual_period_months = max(1, months_diff)  # At least 1 month
+                    else:
+                        # For invoices: use standard periodization from parameters
+                        actual_period_months = period_months_from_params
+
+                    # Calculate MRR using the ACTUAL period months
+                    # For credit notes: This ensures -11,880 / 10 months = -1,188 kr/mnd (not -990!)
+                    mrr_per_month = item_total / actual_period_months
+
+                    # Store the parameters period_months for reference (original subscription period)
+                    period_months = period_months_from_params
 
                     # Get subscription ID
                     subscription_id = str(item_row.get('Subscription ID', '')) if pd.notna(item_row.get('Subscription ID')) else ''
