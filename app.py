@@ -34,9 +34,9 @@ async def auto_sync_job():
     print("="*80)
 
     try:
-        from database import async_session_maker
+        from database import AsyncSessionLocal
 
-        async with async_session_maker() as session:
+        async with AsyncSessionLocal() as session:
             # Initialize clients
             zoho = ZohoClient(
                 client_id=settings.zoho_client_id,

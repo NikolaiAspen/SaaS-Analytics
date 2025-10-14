@@ -251,7 +251,7 @@
         {% endif %}
 
         <div style="margin-bottom: 16px;">
-            <button onclick="syncData()" style="background: var(--good); border: none; color: #0b1020; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500;">🔄 Synkroniser subscriptions fra Zoho</button>
+            <button onclick="syncData()" style="background: var(--good); border: none; color: #0b1020; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500;">🔄 Synkroniser data fra Zoho</button>
         </div>
         <div id="syncStatus" style="display: none; margin-top: 12px; padding: 12px; border-radius: 10px; font-size: 14px;"></div>
 
@@ -359,7 +359,7 @@
             statusDiv.style.display = 'block';
             statusDiv.style.background = 'rgba(159, 177, 255, 0.1)';
             statusDiv.style.color = 'var(--muted)';
-            statusDiv.innerHTML = '🔄 Synkroniserer subscriptions fra Zoho Billing...';
+            statusDiv.innerHTML = '🔄 Synkroniserer subscriptions, fakturaer og kreditnoter fra Zoho Billing...';
 
             try {
                 const response = await fetch('/api/sync', { method: 'POST' });
