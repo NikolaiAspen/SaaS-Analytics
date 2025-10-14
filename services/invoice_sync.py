@@ -13,6 +13,15 @@ from services.invoice import InvoiceService
 from services.zoho import ZohoClient
 
 
+def safe_print(message: str):
+    """Print with Unicode support for Windows console"""
+    try:
+        print(message, flush=True)
+    except UnicodeEncodeError:
+        # Replace Unicode characters with ASCII equivalents for Windows console
+        print(message.encode('ascii', errors='replace').decode('ascii'), flush=True)
+
+
 class InvoiceSyncService:
     """Service for incremental invoice synchronization"""
 
@@ -64,7 +73,7 @@ class InvoiceSyncService:
                 try:
                     await self.invoice_service.generate_monthly_snapshot(month_str)
                     stats["snapshots_updated"].append(month_str)
-                    print(f"  ✓ Updated snapshot for {month_str}")
+                    safe_print(f"  ✓ Updated snapshot for {month_str}")
                 except Exception as e:
                     error_msg = f"Failed to update snapshot for {month_str}: {str(e)}"
                     print(f"  ✗ {error_msg}")
@@ -172,7 +181,7 @@ class InvoiceSyncService:
                 if synced_count % 50 == 0:
                     await self.session.commit()
 
-        print(f"  ✓ Synced {synced_count} invoices with {line_items_count} line items")
+        safe_print(f"  ✓ Synced {synced_count} invoices with {line_items_count} line items")
 
         return {
             "count": synced_count,
@@ -263,7 +272,7 @@ class InvoiceSyncService:
                 print(f"  Note: Could not sync credit notes: {e}")
                 print(f"  This is OK if credit notes are included in invoices list")
 
-        print(f"  ✓ Synced {synced_count} credit notes with {line_items_count} line items")
+        safe_print(f"  ✓ Synced {synced_count} credit notes with {line_items_count} line items")
 
         return {
             "count": synced_count,

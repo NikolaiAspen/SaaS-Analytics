@@ -531,7 +531,11 @@ async def sync_subscriptions(
 
         import traceback
         error_detail = f"Sync failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-        print(error_detail)  # Print to console for debugging
+        # Safe print for Windows console (handle Unicode characters)
+        try:
+            print(error_detail, flush=True)
+        except UnicodeEncodeError:
+            print(error_detail.encode('ascii', errors='replace').decode('ascii'), flush=True)
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 
