@@ -188,3 +188,99 @@ class ZohoClient:
             data = response.json()
 
             return data.get("customers", [])
+
+    async def get_creditnotes(
+        self,
+        page: int = 1,
+        per_page: int = 200,
+        last_modified_time: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Fetch credit notes from Zoho Billing
+
+        Args:
+            page: Page number for pagination
+            per_page: Number of results per page (max 200)
+            last_modified_time: Filter by last modified time (ISO format)
+
+        Returns:
+            List of credit note dictionaries
+        """
+        url = f"{self.base_url}/billing/v1/creditnotes"
+        params = {"page": page, "per_page": per_page}
+
+        if last_modified_time:
+            params["last_modified_time"] = last_modified_time
+
+        headers = await self._get_headers()
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                response = await client.get(url, headers=headers, params=params)
+                response.raise_for_status()
+                data = response.json()
+
+                return data.get("creditnotes", [])
+            except httpx.HTTPStatusError as e:
+                print(f"HTTP Error: {e.response.status_code} - {e.response.text}")
+                raise
+            except Exception as e:
+                print(f"Error fetching credit notes: {str(e)}")
+                raise
+
+    async def get_all_creditnotes(self, last_modified_time: Optional[str] = None) -> List[Dict]:
+        """
+        Fetch all credit notes across all pages
+
+        Args:
+            last_modified_time: Filter by last modified time (ISO format)
+
+        Returns:
+            List of all credit note dictionaries
+        """
+        all_creditnotes = []
+        page = 1
+        per_page = 200
+
+        print(f"Fetching all credit notes from Zoho...")
+        if last_modified_time:
+            print(f"  (modified since {last_modified_time})")
+
+        while True:
+            creditnotes = await self.get_creditnotes(
+                page=page,
+                per_page=per_page,
+                last_modified_time=last_modified_time
+            )
+            if not creditnotes:
+                break
+
+            all_creditnotes.extend(creditnotes)
+
+            if len(creditnotes) < per_page:
+                break
+
+            page += 1
+
+        print(f"Total credit notes fetched: {len(all_creditnotes)}")
+        return all_creditnotes
+
+    async def get_creditnote(self, creditnote_id: str) -> Dict:
+        """
+        Fetch a single credit note by ID with line items
+
+        Args:
+            creditnote_id: Zoho credit note ID
+
+        Returns:
+            Credit note dictionary with line items
+        """
+        url = f"{self.base_url}/billing/v1/creditnotes/{creditnote_id}"
+        headers = await self._get_headers()
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+            return data.get("creditnote", {})

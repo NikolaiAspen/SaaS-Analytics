@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     auth_username: str = ""
     auth_password: str = ""
 
+    # SMTP Configuration (optional - required only for email notifications)
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_from_name: str = "SaaS Analytics"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

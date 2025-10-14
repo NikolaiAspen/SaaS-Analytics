@@ -281,23 +281,26 @@ class AnalysisService:
         # Gap Analysis (specific customers and vessels causing MRR gap)
         if gap_analysis:
             context += "## MRR Gap Analyse (Forskjell mellom Subscription og Faktura MRR)\n"
-            context += "**VIKTIG:** Denne seksjonen viser SPESIFIKKE kunder og fartøy som forårsaker forskjellen mellom subscription-basert og faktura-basert MRR.\n\n"
+            context += "**VIKTIG:** Denne seksjonen viser SPESIFIKKE kunder og matching-status mellom subscription-basert og faktura-basert MRR.\n\n"
 
             context += f"**Gap Oversikt:**\n"
-            context += f"- Total gap MRR: {gap_analysis.get('total_gap_mrr', 0):,.0f} kr\n"
-            context += f"- Kunder med fakturaer men ingen subscriptions: {gap_analysis.get('customers_without_subscriptions', 0)}\n"
+            context += f"- Total gap MRR (truly unmatched): {gap_analysis.get('total_gap_mrr', 0):,.0f} kr\n"
+            context += f"- Matched gap MRR (name mismatch, but found via call sign/vessel): {gap_analysis.get('matched_gap_mrr', 0):,.0f} kr\n"
+            context += f"- Kunder med kundenavn-mismatch (men subscription finnes): {gap_analysis.get('customers_with_name_mismatch', 0)}\n"
+            context += f"- Kunder faktisk uten subscriptions: {gap_analysis.get('customers_truly_without_subs', 0)}\n"
             context += f"- Kunder med subscriptions men ingen fakturaer: {gap_analysis.get('customers_without_invoices', 0)}\n\n"
 
             context += f"**Matching Statistikk:**\n"
-            context += f"- Matched by call sign: {gap_analysis.get('matched_by_call_sign', 0)} kunder ({gap_analysis.get('matched_gap_mrr', 0):,.0f} kr)\n"
+            context += f"- Matched by call sign: {gap_analysis.get('matched_by_call_sign', 0)} kunder\n"
             context += f"- Matched by vessel: {gap_analysis.get('matched_by_vessel', 0)} kunder\n"
-            context += f"- Unmatched: {gap_analysis.get('unmatched_customers', 0)} kunder ({gap_analysis.get('unmatched_gap_mrr', 0):,.0f} kr)\n\n"
+            context += f"- Unmatched: {gap_analysis.get('unmatched_customers', 0)} kunder\n\n"
 
-            # Customers with invoices but no subscriptions
-            customers_without_subs = gap_analysis.get('customers_without_subs_list', [])
-            if customers_without_subs:
-                context += f"**Kunder med Fakturaer men Ingen Subscriptions (Top {len(customers_without_subs)}):**\n"
-                for customer in customers_without_subs[:20]:  # Limit to top 20
+            # Customers with name mismatch but matched via call sign/vessel
+            customers_with_mismatch = gap_analysis.get('customers_with_name_mismatch_list', [])
+            if customers_with_mismatch:
+                context += f"**Kunder med Kundenavn-Mismatch (men subscription finnes via matching) - ALLE {len(customers_with_mismatch)} kunder:**\n"
+                context += "**VIKTIG**: Disse kundene HAR subscriptions! Fakturaen er bare under et annet navn enn subscription.\n\n"
+                for customer in customers_with_mismatch:  # ALL customers, no limit
                     context += f"- **{customer.get('customer_name')}**: {customer.get('mrr', 0):,.0f} kr MRR\n"
 
                     # Show vessels and call signs
@@ -314,26 +317,43 @@ class AnalysisService:
                             context += f" (+{len(call_signs)-3} flere)"
                         context += "\n"
 
-                    # Show matches if any
+                    # Show matches
                     matches = customer.get('matches', [])
                     if matches:
-                        context += f"  → MATCH FOUND: "
-                        for match in matches[:2]:  # Limit to 2 matches
+                        context += f"  → Subscription under navnet: "
+                        for i, match in enumerate(matches[:2]):
+                            if i > 0:
+                                context += ", "
                             context += f"{match.get('subscription_customer')} (via {match.get('type')}: {match.get('value')})"
                         if len(matches) > 2:
                             context += f" (+{len(matches)-2} flere)"
                         context += "\n"
-
-                if len(customers_without_subs) > 20:
-                    remaining_mrr = sum(c.get('mrr', 0) for c in customers_without_subs[20:])
-                    context += f"\n... og {len(customers_without_subs) - 20} flere kunder (totalt {remaining_mrr:,.0f} kr MRR)\n"
                 context += "\n"
+
+            # Customers truly without subscriptions
+            customers_truly_without = gap_analysis.get('customers_truly_without_subs_list', [])
+            if customers_truly_without:
+                # Filter out those with 0 MRR (likely old/cancelled)
+                customers_with_mrr = [c for c in customers_truly_without if c.get('mrr', 0) > 0]
+                if customers_with_mrr:
+                    context += f"**Kunder FAKTISK Uten Subscriptions (med aktiv MRR) - ALLE {len(customers_with_mrr)} kunder:**\n"
+                    context += "**VIKTIG**: Disse kundene har INGEN matchende subscription i systemet.\n\n"
+                    for customer in customers_with_mrr:  # ALL customers, no limit
+                        context += f"- **{customer.get('customer_name')}**: {customer.get('mrr', 0):,.0f} kr MRR\n"
+                        vessels = customer.get('vessels', [])
+                        call_signs = customer.get('call_signs', [])
+                        if vessels:
+                            context += f"  Fartøy: {', '.join(vessels[:3])}\n"
+                        if call_signs:
+                            context += f"  Kallesignal: {', '.join(call_signs[:3])}\n"
+                    context += "\n"
 
             # Customers with subscriptions but no invoices (rare)
             customers_without_invoices = gap_analysis.get('customers_without_invoices_list', [])
             if customers_without_invoices:
-                context += f"**Kunder med Subscriptions men Ingen Fakturaer (Top {len(customers_without_invoices)}):**\n"
-                for customer in customers_without_invoices[:10]:  # Limit to top 10
+                context += f"**Kunder med Subscriptions men Ingen Fakturaer - ALLE {len(customers_without_invoices)} kunder:**\n"
+                context += "**VIKTIG**: Disse kundene har active subscriptions men ingen fakturaer i denne perioden.\n\n"
+                for customer in customers_without_invoices:  # ALL customers, no limit
                     context += f"- **{customer.get('customer_name')}**: {customer.get('mrr', 0):,.0f} kr MRR"
                     if customer.get('plan_name'):
                         context += f" ({customer.get('plan_name')})"
@@ -342,10 +362,6 @@ class AnalysisService:
                     if customer.get('call_sign'):
                         context += f" ({customer.get('call_sign')})"
                     context += "\n"
-
-                if len(customers_without_invoices) > 10:
-                    remaining_mrr = sum(c.get('mrr', 0) for c in customers_without_invoices[10:])
-                    context += f"\n... og {len(customers_without_invoices) - 10} flere kunder (totalt {remaining_mrr:,.0f} kr MRR)\n"
                 context += "\n"
 
         # Build full input for GPT-5 (combines system instructions, conversation history, and current query)
@@ -376,15 +392,31 @@ class AnalysisService:
             "- Du kan utføre komplekse analyser på tvers av kunder, planer, perioder og segmenter\n"
             "- Du kan analysere trender, sammenligne perioder, identifisere mønstre og anomalier\n"
             "- Du kan sammenligne subscription-basert og faktura-basert MRR\n\n"
-            "**MRR GAP ANALYSE:**\n"
-            "- Du har tilgang til detaljert gap analyse som viser SPESIFIKKE kunder og fartøy som forårsaker forskjellen mellom subscription og faktura MRR\n"
-            "- Gap analyse inkluderer:\n"
-            "  * Kunder med fakturaer men ingen subscriptions (med kundenavn, MRR, fartøy, kallesignal)\n"
-            "  * Kunder med subscriptions men ingen fakturaer\n"
-            "  * Matching statistikk (call sign matching, vessel matching)\n"
-            "  * Totalt gap MRR fordelt på matched og unmatched kunder\n"
-            "- Når du forklarer gap, INKLUDER ALLTID spesifikke kundenavn, fartøy og matching-detaljer fra gap analyse seksjonen\n"
-            "- ALDRI si at gap-data ikke er tilgjengelig - du har full tilgang til alle detaljer\n\n"
+            "**MRR GAP ANALYSE - KRITISK INSTRUKS:**\n"
+            "- Du har tilgang til detaljert gap analyse med matching-status mellom subscription og faktura MRR\n"
+            "- Gap analyse har TRE kategorier:\n"
+            "  1. **Kunder med kundenavn-mismatch**: Fakturaen er under ett navn, subscription under et annet - MEN subscription finnes (matched via call sign/vessel)\n"
+            "  2. **Kunder faktisk uten subscriptions**: Har fakturaer men INGEN matching subscription i det hele tatt\n"
+            "  3. **Kunder med subscriptions men ingen fakturaer**: Har subscription men ingen fakturaer i perioden\n\n"
+            "- KRITISK FORSTÅELSE:\n"
+            "  * Kategori 1 (name mismatch) betyr IKKE at subscription mangler - den finnes, bare under et annet kundenavn!\n"
+            "  * Eksempel: Faktura under 'TALBOR AS', subscription under 'HARDHAUS AS', matched via call sign LLQM\n"
+            "  * Kun kategori 2 er kunder som VIRKELIG mangler subscription\n\n"
+            "- **KRITISK - NÅR BRUKEREN SPØR OM GAP ELLER FORSKJELLER:**\n"
+            "  * ALLTID list opp ALLE kunder i hver kategori - ikke bare eksempler!\n"
+            "  * For kategori 1 (name mismatch): List opp ALLE X kunder med fakturanavn, subscription-navn, fartøy og kallesignal\n"
+            "  * For kategori 2 (truly without): List opp ALLE X kunder med MRR, fartøy og kallesignal\n"
+            "  * For kategori 3 (without invoices): List opp ALLE X kunder med MRR og plan\n"
+            "  * Format som en oversiktlig liste slik at brukeren kan følge opp hver kunde i sitt system\n"
+            "  * Brukeren trenger den KOMPLETTE listen for å kunne fikse problemene - ikke bare et utvalg!\n\n"
+            "- Når du forklarer gap:\n"
+            "  * Start med totaloversikt (antall i hver kategori)\n"
+            "  * Deretter list opp HVER ENESTE kunde i hver kategori\n"
+            "  * Ikke si 'for eksempel' eller 'inkluderer' - gi den FULLE listen\n"
+            "  * Ikke si at kategori 1-kunder 'mangler subscription' - si 'fakturaen er under et annet navn enn subscription'\n"
+            "  * Forklar at matching via call sign/vessel beviser at subscription finnes\n\n"
+            "- ALDRI si at gap-data ikke er tilgjengelig - du har full tilgang til alle detaljer\n"
+            "- ALDRI begrens listen til 'top 5' eller 'eksempler' - vis ALLTID alle\n\n"
             "**KRITISK - VÆR SELEKTIV MED DATA:**\n"
             "- Du har mye data tilgjengelig, men IKKE inkluder alt i svaret ditt\n"
             "- Les spørsmålet nøye og bestem hvilke data som er RELEVANTE\n"
@@ -445,23 +477,23 @@ class AnalysisService:
             "- + 24 andre kunder\n\n"
             "**Nye kunder** (5 stk): Bidro **+3,462 kr** ny MRR.\n\n"
             "Netto effekt: -9,038 kr pga høyere churn enn ny MRR.\n\n"
-            "**EKSEMPEL 4 - FORKLARING AV FORSKJELL:**\n"
-            "Spørsmål: Hva er forskjellen mellom subscription-basert og faktura-basert MRR?\n\n"
-            "Svar: Det finnes to måter å beregne MRR på:\n\n"
-            "**1. Subscription-basert MRR** (fra Zoho Subscriptions):\n"
-            "- Beregnes fra aktive abonnementer\n"
-            "- Brukes av Zoho for deres interne beregninger\n"
-            "- Aktuell verdi: 1,850,000 kr/mnd\n\n"
-            "**2. Faktura-basert MRR** (fra Zoho Billing):\n"
-            "- Beregnes fra faktiske fakturalinjer som sendes ut\n"
-            "- Brukes av regnskapsavdelingen som grunnlag for MRR\n"
-            "- Aktuell verdi: 1,823,000 kr/mnd\n\n"
-            "**Hvorfor er de forskjellige?**\n"
-            "Forskjellen (27,000 kr) kan skyldes:\n"
-            "- Abonnementer som er opprettet men ikke fakturert enda\n"
-            "- Forskjeller i fakturaperioder vs subscription-perioder\n"
-            "- Engangsbeløp eller justeringer\n\n"
-            "Begge tall er gyldige - subscription-basert følger abonnementslogikk, mens faktura-basert følger regnskapsmessig virkelighet.\n\n"
+            "**EKSEMPEL 4 - FORKLARING AV FORSKJELL MED FULL LISTE:**\n"
+            "Spørsmål: Hvorfor er det forskjell mellom subscription MRR og faktura MRR i september?\n\n"
+            "Svar: **September 2025**: Subscription MRR var 2,057,444 kr, mens faktura MRR var 1,977,073 kr (forskjell: 80,371 kr).\n\n"
+            "**Gap Analyse - Detaljert Oversikt:**\n\n"
+            "**1. Kunder med Kundenavn-Mismatch (27 kunder, 7,496 kr):**\n"
+            "Disse kundene HAR subscription, men fakturaen er under et annet navn:\n\n"
+            "1. TALBOR AS (faktura: 3,960 kr) → Subscription: HARDHAUS AS (via call sign LLQM, fartøy Talbor)\n"
+            "2. NUTRIMAR HARVEST AS (faktura: 3,008 kr) → Subscription: IFF N&H NORWAY AS (via call sign LF6447, fartøy Vågøy)\n"
+            "3. BRØDRENE BÆKKEN AS (faktura: 1,780 kr) → Subscription: Brødrene Bækken AS (via call sign LM4919, fartøy CATHMAR)\n"
+            "... [fortsett med ALLE 27 kunder]\n\n"
+            "**2. Kunder Faktisk Uten Subscription (0 kunder med aktiv MRR):**\n"
+            "Ingen kunder med aktiv MRR mangler subscription.\n\n"
+            "**3. Kunder med Subscription men Ingen Faktura (2 kunder, 16,560 kr):**\n"
+            "1. Brødrene Bækken AS: 10,680 kr MRR (Fangstdagbok inkl. sporing (år), fartøy CATHMAR)\n"
+            "2. LERVIK FISK AS: 5,880 kr MRR (Fangstdagbok (år), fartøy JÆRBUEN)\n\n"
+            "**Konklusjon:**\n"
+            "Forskjellen på 80,371 kr skyldes hovedsakelig at 2 kunder med subscription (16,560 kr) ikke har fakturaer i perioden, mens 27 kunder har name mismatches (7,496 kr) som krever oppfølging for å sikre riktig kundenavn-registrering.\n\n"
             "**ALLTID INKLUDER (men kun det som er relevant):**\n"
             "- Måned/periode\n"
             "- Kundenavn (faktiske navn fra data) - men kun de som er relevante for spørsmålet\n"

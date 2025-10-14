@@ -141,7 +141,7 @@
 
         table {
             width: 100%;
-            min-width: 1800px;
+            min-width: 2000px;
             border-collapse: collapse;
             font-size: 13px;
         }
@@ -225,6 +225,55 @@
             border-left: 2px solid var(--warn);
         }
 
+        /* Invoice grouping styles */
+        .invoice-group-row {
+            background: rgba(61, 220, 151, 0.05);
+            font-weight: 600;
+            border-left: 3px solid var(--good);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .invoice-group-row:hover {
+            background: rgba(61, 220, 151, 0.1);
+        }
+
+        .invoice-group-row.has-credit {
+            border-left: 3px solid var(--warn);
+        }
+
+        .toggle-icon {
+            display: inline-block;
+            margin-right: 8px;
+            transition: transform 0.2s ease;
+            font-weight: bold;
+            color: var(--good);
+        }
+
+        .toggle-icon.expanded {
+            transform: rotate(90deg);
+        }
+
+        .invoice-number-with-credit {
+            padding: 4px 8px;
+            border: 2px solid var(--bad);
+            border-radius: 6px;
+            background: rgba(255, 107, 107, 0.1);
+        }
+
+        .invoice-line-row {
+            display: none !important;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .invoice-line-row.visible {
+            display: table-row !important;
+        }
+
+        .invoice-line-row td:first-child {
+            padding-left: 40px;
+        }
+
         @media (max-width: 768px) {
             .sidebar {
                 width: 0;
@@ -292,7 +341,13 @@
         </div>
 
         <div class="card">
-            <h2>Alle Fakturalinjer Aktive i {{ month_name }}</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h2 style="margin: 0;">Alle Fakturalinjer Aktive i {{ month_name }}</h2>
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 16px; background: rgba(255, 255, 255, 0.05); border-radius: 10px; transition: all 0.2s;">
+                    <input type="checkbox" id="groupToggle" style="width: 18px; height: 18px; cursor: pointer;">
+                    <span style="color: var(--ink); font-size: 14px; font-weight: 500;">Se som gruppert</span>
+                </label>
+            </div>
             <p style="color: var(--muted); margin-bottom: 16px; font-size: 14px;">
                 📋 Viser alle fakturalinjer som var aktive i {{ month_name }}.
                 Klikk på kolonneoverskrifter for å sortere tabellen.
@@ -313,6 +368,8 @@
                             <th onclick="sortTable(9)" class="number">Periode Mnd</th>
                             <th onclick="sortTable(10)" class="number">Totalt Beløp</th>
                             <th onclick="sortTable(11)" class="number">MRR per Mnd</th>
+                            <th onclick="sortTable(12)" class="number">Kreditert Beløp</th>
+                            <th onclick="sortTable(13)" class="number">Total MRR per Mnd</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -388,6 +445,215 @@
     </div>
 
     <script>
+        // Store original HTML
+        let originalHTML = '';
+
+        // Group invoices and create collapsible rows
+        window.addEventListener('DOMContentLoaded', () => {
+            const table = document.getElementById('drilldownTable');
+            const tbody = table.tBodies[0];
+            const groupToggle = document.getElementById('groupToggle');
+
+            // Save original HTML (preserves all classes and attributes)
+            originalHTML = tbody.innerHTML;
+
+            // Debug: Check if any creditnote-subrow exists in original HTML
+            const subrowCount = (originalHTML.match(/creditnote-subrow/g) || []).length;
+            console.log('Original HTML has', subrowCount, 'creditnote-subrow elements');
+
+            // Listen to toggle changes
+            groupToggle.addEventListener('change', () => {
+                if (groupToggle.checked) {
+                    applyGrouping();
+                } else {
+                    restoreOriginalView();
+                }
+            });
+        });
+
+        function applyGrouping() {
+            const table = document.getElementById('drilldownTable');
+            const tbody = table.tBodies[0];
+            const rows = Array.from(tbody.rows);
+
+            // Group rows by invoice number
+            const invoiceGroups = new Map();
+            let currentInvoiceNum = null;
+            const creditNoteMapping = new Map(); // Track which invoice each credit note belongs to
+
+            // First pass: Map credit notes to their invoices
+            rows.forEach(row => {
+                const invoiceNum = row.cells[0].textContent.trim().replace(/^└\s*/, '');
+                const isCreditNote = row.classList.contains('creditnote');
+
+                if (isCreditNote && currentInvoiceNum) {
+                    // This credit note comes after an invoice - remember this mapping
+                    if (!creditNoteMapping.has(invoiceNum)) {
+                        creditNoteMapping.set(invoiceNum, currentInvoiceNum);
+                    }
+                } else if (!isCreditNote) {
+                    currentInvoiceNum = invoiceNum;
+                }
+            });
+
+            // Second pass: Build groups using the mapping
+            currentInvoiceNum = null;
+
+            rows.forEach(row => {
+                const invoiceNum = row.cells[0].textContent.trim().replace(/^└\s*/, ''); // Remove tree character
+                const isCreditNote = row.classList.contains('creditnote');
+                const isCreditSubrow = row.classList.contains('creditnote-subrow');
+
+                // Use creditNoteMapping to determine groupKey for credit notes
+                let groupKey;
+                if (isCreditNote && creditNoteMapping.has(invoiceNum)) {
+                    // This credit note was mapped to an invoice in first pass
+                    groupKey = creditNoteMapping.get(invoiceNum);
+                } else if (isCreditSubrow || (isCreditNote && currentInvoiceNum)) {
+                    // Fallback: use current invoice
+                    groupKey = currentInvoiceNum;
+                } else {
+                    // Regular invoice or standalone credit note
+                    groupKey = invoiceNum;
+                }
+
+                // Debug: Track CN-01672 specifically
+                if (invoiceNum === 'CN-01672' || (isCreditNote && invoiceNum.includes('01672'))) {
+                    const rowIndex = rows.indexOf(row);
+                    console.log('🔍 CN-01672 Row', rowIndex, '- Product:', row.cells[6]?.textContent.trim(),
+                                'isCreditNote:', isCreditNote,
+                                'mapped:', creditNoteMapping.get(invoiceNum),
+                                'currentInvoice:', currentInvoiceNum,
+                                'groupKey:', groupKey);
+                }
+
+                if (!invoiceGroups.has(groupKey)) {
+                    invoiceGroups.set(groupKey, {
+                        invoiceNumber: groupKey,
+                        rows: [],
+                        creditNoteRows: [],
+                        totalAmount: 0,
+                        totalMRR: 0,
+                        creditAmount: 0,
+                        creditMRR: 0,
+                        isStandaloneCreditNote: false
+                    });
+                }
+
+                const group = invoiceGroups.get(groupKey);
+
+                if (isCreditNote && (creditNoteMapping.has(invoiceNum) || currentInvoiceNum)) {
+                    // This is a credit note that's mapped to an invoice - group under invoice
+                    group.creditNoteRows.push(row);
+                    const amount = parseFloat(row.cells[10].textContent.replace(/[^\d.-]/g, ''));
+                    const mrr = parseFloat(row.cells[11].textContent.replace(/[^\d.-]/g, ''));
+                    group.creditAmount += amount;
+                    group.creditMRR += mrr;
+                    // Don't update currentInvoiceNum - keep pointing to invoice
+                } else if (isCreditNote) {
+                    // This is a standalone credit note (comes before any invoice) - create its own group
+                    currentInvoiceNum = invoiceNum;
+                    group.isStandaloneCreditNote = true;
+                    group.rows.push(row);
+                    const amount = parseFloat(row.cells[10].textContent.replace(/[^\d.-]/g, ''));
+                    const mrr = parseFloat(row.cells[11].textContent.replace(/[^\d.-]/g, ''));
+                    group.totalAmount += amount;
+                    group.totalMRR += mrr;
+                } else {
+                    // This is an invoice row
+                    currentInvoiceNum = invoiceNum;
+                    group.rows.push(row);
+                    const amount = parseFloat(row.cells[10].textContent.replace(/[^\d.-]/g, ''));
+                    const mrr = parseFloat(row.cells[11].textContent.replace(/[^\d.-]/g, ''));
+                    group.totalAmount += amount;
+                    group.totalMRR += mrr;
+                }
+            });
+
+            console.log('Grouped', invoiceGroups.size, 'invoices');
+
+            // Clear tbody and rebuild with grouped structure
+            tbody.innerHTML = '';
+
+            invoiceGroups.forEach(group => {
+                if (group.rows.length === 0) return; // Skip empty groups
+
+                // Get first row data for common fields
+                const firstRow = group.rows[0];
+                const invoiceDate = firstRow.cells[1].textContent;
+                const customerName = firstRow.cells[3].textContent;
+
+                // Calculate net totals (including credit notes)
+                const netAmount = group.totalAmount + group.creditAmount;
+                const netMRR = group.totalMRR + group.creditMRR;
+                const hasCredit = group.creditNoteRows.length > 0;
+
+                // If standalone credit note with only one row, show it directly without grouping
+                if (group.isStandaloneCreditNote && group.rows.length === 1 && group.creditNoteRows.length === 0) {
+                    tbody.appendChild(firstRow);
+                    return;
+                }
+
+                // Create group header row
+                const groupRow = document.createElement('tr');
+                groupRow.className = 'invoice-group-row' + (hasCredit ? ' has-credit' : '');
+                const transactionType = group.isStandaloneCreditNote ? 'Kreditnota' : (hasCredit ? 'Faktura / Kreditnota' : 'Faktura');
+                const invoiceNumDisplay = hasCredit ? `<span class="invoice-number-with-credit">${group.invoiceNumber}</span>` : group.invoiceNumber;
+                groupRow.innerHTML = `
+                    <td><span class="toggle-icon">▶</span>${invoiceNumDisplay}</td>
+                    <td>${invoiceDate}</td>
+                    <td>${transactionType}</td>
+                    <td>${customerName}</td>
+                    <td colspan="6" style="text-align: right; padding-right: 20px; color: var(--muted);">${group.rows.length + group.creditNoteRows.length} linje${group.rows.length + group.creditNoteRows.length > 1 ? 'r' : ''}</td>
+                    <td class="number ${netAmount < 0 ? 'negative-amount' : ''}">${netAmount.toFixed(2)} kr</td>
+                    <td class="number ${group.isStandaloneCreditNote ? 'negative-amount' : 'positive-amount'}">${group.totalMRR.toFixed(2)} kr</td>
+                    <td class="number ${hasCredit ? 'negative-amount' : ''}">${hasCredit ? group.creditMRR.toFixed(2) + ' kr' : '-'}</td>
+                    <td class="number ${netMRR < 0 ? 'negative-amount' : 'positive-amount'} net-mrr">${netMRR.toFixed(2)} kr</td>
+                `;
+
+                tbody.appendChild(groupRow);
+
+                // Add invoice line rows (hidden by default)
+                group.rows.forEach(row => {
+                    row.classList.add('invoice-line-row');
+                    tbody.appendChild(row);
+                });
+
+                // Add credit note rows (hidden by default)
+                group.creditNoteRows.forEach(row => {
+                    row.classList.add('invoice-line-row');
+                    tbody.appendChild(row);
+                });
+
+                // Add click handler to toggle
+                groupRow.addEventListener('click', () => {
+                    const toggleIcon = groupRow.querySelector('.toggle-icon');
+                    const isExpanded = toggleIcon.classList.contains('expanded');
+
+                    // Get all rows for this invoice
+                    let nextRow = groupRow.nextElementSibling;
+                    while (nextRow && nextRow.classList.contains('invoice-line-row')) {
+                        if (isExpanded) {
+                            nextRow.classList.remove('visible');
+                        } else {
+                            nextRow.classList.add('visible');
+                        }
+                        nextRow = nextRow.nextElementSibling;
+                    }
+
+                    toggleIcon.classList.toggle('expanded');
+                });
+            });
+        }
+
+        function restoreOriginalView() {
+            const table = document.getElementById('drilldownTable');
+            const tbody = table.tBodies[0];
+
+            // Restore original HTML
+            tbody.innerHTML = originalHTML;
+        }
+
         // Table sorting
         let sortDirection = {};
 

@@ -147,15 +147,27 @@ async def import_from_excel():
 
     # Create invoice lookup: Invoice Number -> End Date
     invoice_periods = {}
+    # Also create lookup by Customer + Item Name for fallback matching
+    invoice_customer_item_periods = {}
+
     for idx, row in combined_df.iterrows():
         if row['transaction_type'] == 'invoice' and pd.notna(row.get('End Date')):
             inv_number = str(row['Invoice Number']).strip()
             end_date = row['End Date']
-            # Store the LATEST end date if multiple lines for same invoice
+            customer_name = str(row['Customer Name']).strip()
+            item_name = str(row.get('Item Name', '')).strip()
+
+            # Store by invoice number
             if inv_number not in invoice_periods or end_date > invoice_periods[inv_number]:
                 invoice_periods[inv_number] = end_date
 
-    matched_cn = 0
+            # Store by customer + item (for fallback matching)
+            key = (customer_name, item_name)
+            if key not in invoice_customer_item_periods or end_date > invoice_customer_item_periods[key]:
+                invoice_customer_item_periods[key] = end_date
+
+    matched_by_invoice_num = 0
+    matched_by_customer_item = 0
     unmatched_cn = 0
 
     for idx, row in combined_df.iterrows():
@@ -164,17 +176,23 @@ async def import_from_excel():
 
         cn_date = pd.to_datetime(row['Invoice Date'])
         applied_invoice_num = str(row.get('Applied Invoice Number', '')).strip()
+        customer_name = str(row['Customer Name']).strip()
+        item_name = str(row.get('Item Name', '')).strip()
 
-        # Try to match with original invoice
+        # Strategy 1: Try to match with original invoice number
         if applied_invoice_num and applied_invoice_num in invoice_periods:
-            # MATCH FOUND: Use invoice's end date
             invoice_end_date = invoice_periods[applied_invoice_num]
             combined_df.at[idx, 'Start Date'] = cn_date
             combined_df.at[idx, 'End Date'] = invoice_end_date
-            matched_cn += 1
+            matched_by_invoice_num += 1
+        # Strategy 2: Try to match by customer + item name
+        elif (customer_name, item_name) in invoice_customer_item_periods:
+            invoice_end_date = invoice_customer_item_periods[(customer_name, item_name)]
+            combined_df.at[idx, 'Start Date'] = cn_date
+            combined_df.at[idx, 'End Date'] = invoice_end_date
+            matched_by_customer_item += 1
         else:
             # NO MATCH: Fallback to standard periodization
-            item_name = str(row.get('Item Name', '')).strip() if pd.notna(row.get('Item Name')) else ''
             if item_name in periodization_map:
                 period_months = periodization_map[item_name]
                 end_date = cn_date + pd.DateOffset(months=period_months) - pd.DateOffset(days=1)
@@ -182,9 +200,13 @@ async def import_from_excel():
                 combined_df.at[idx, 'End Date'] = end_date
             unmatched_cn += 1
 
+    matched_cn = matched_by_invoice_num + matched_by_customer_item
+
     print(f"  [OK] Period dates calculated")
-    print(f"      Credit notes matched to invoice: {matched_cn}")
+    print(f"      Credit notes matched by invoice number: {matched_by_invoice_num}")
+    print(f"      Credit notes matched by customer+item: {matched_by_customer_item}")
     print(f"      Credit notes using fallback: {unmatched_cn}")
+    print(f"      Total matched: {matched_cn} / {matched_cn + unmatched_cn}")
 
     # Step 5: Ensure tables exist
     print("\n[5] ENSURING DATABASE TABLES EXIST")
