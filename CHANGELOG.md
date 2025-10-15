@@ -1,5 +1,37 @@
 # Endringslogg - SaaS Analytics
 
+## Versjon 2.3.0 - 15. oktober 2025
+
+### 🎯 MRR Gap Analyse & Excel Rapport
+- **Komplett gap-analyse rapport**: Ny Excel-rapport med 5 detaljerte ark (Sammendrag, Kunde Sammenligning, Subscriptions, Fakturaer, Forklaring)
+- **100% matching rate**: Alle 1,933 subscriptions matchet via multi-tier strategi (Subscription ID, Kallesignal, Fartøy)
+- **Minimal gap**: Kun 0.1% forskjell (1,612 NOK) mellom subscription og faktura MRR
+- **Pedagogisk forklaring**: Excel-arket "Forklaring" forklarer hvorfor subscription-basert og faktura-basert MRR er forskjellige
+
+### 🤖 AI Forbedringer
+- **Bedre forklaring av MRR-forskjeller**: Niko kan nå forklare forskjellen mellom subscription-basert og faktura-basert MRR på en pedagogisk måte
+- **5 konkrete årsaker til gap**: Tidsforskyving, kreditnotaer, gamle fakturaer, engangsfakturaer, manuelle justeringer
+- **Tydeligere kildehenvisning**: Niko spesifiserer alltid om tall er fra subscriptions eller fakturaer
+- **Bedre kontekstforståelse**: AI-en vet nå at begge metoder er gyldige men brukes til forskjellige formål
+
+### 🐛 Feilrettinger
+- **Faktura MRR display**: Fikset bug hvor fakturaer med kreditnotaer viste 0.00 kr MRR i stedet for korrekt beløp
+- **Template separering**: Invoice MRR, Credit Amount og Net MRR vises nå i separate kolonner for klarhet
+- **Database connection**: Automatisk tillegg av +asyncpg driver for Railway PostgreSQL-kompatibilitet
+
+### 🔧 Tekniske Endringer
+- `/health` endpoint utvidet med test query for å verifisere database-data
+- Forbedret matching-logikk for invoice-subscription kobling
+- Oppdatert AI-instruksjoner med 1000+ linjer detaljert kontekst
+
+### 📊 Resultater
+- Subscription MRR: 2,061,316 NOK
+- Faktura MRR: 2,062,928 NOK
+- Gap: 1,612 NOK (0.1%)
+- Matched: 1,933/1,933 subscriptions (100%)
+
+---
+
 ## Versjon 2.1.0 - 10. oktober 2025
 
 ### 🎯 Niko AI Forbedringer

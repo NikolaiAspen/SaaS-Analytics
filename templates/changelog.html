@@ -132,13 +132,35 @@
         }
 
         .version-badge {
-            background: rgba(159, 177, 255, 0.15);
-            color: var(--muted);
-            border: 1px solid rgba(159, 177, 255, 0.3);
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 14px;
+            background: linear-gradient(135deg, rgba(61, 220, 151, 0.15) 0%, rgba(61, 220, 151, 0.08) 100%);
+            color: var(--good);
+            border: 1px solid rgba(61, 220, 151, 0.3);
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-size: 13px;
             font-weight: 600;
+            box-shadow: 0 2px 8px rgba(61, 220, 151, 0.1);
+        }
+
+        /* Version section styling */
+        .changelog-content h2:first-of-type {
+            background: linear-gradient(135deg, rgba(61, 220, 151, 0.08) 0%, rgba(61, 220, 151, 0.03) 100%);
+            border-left: 3px solid var(--good);
+            padding: 16px;
+            margin-top: 0;
+            border-radius: 8px;
+        }
+
+        /* Category headers (h3) */
+        .changelog-content h3 {
+            padding-left: 12px;
+            border-left: 2px solid rgba(61, 220, 151, 0.3);
+            margin-top: 24px;
+        }
+
+        /* Bullet points styling */
+        .changelog-content li strong {
+            color: var(--good);
         }
 
         .emoji {
