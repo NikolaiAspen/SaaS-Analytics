@@ -220,10 +220,9 @@
         function createMRRChart(trends) {
             const ctx = document.getElementById('mrrChart').getContext('2d');
 
-            // Reverse trends for chronological order (oldest to newest)
-            const reversedTrends = [...trends].reverse();
-            const labels = reversedTrends.map(t => t.month_name);
-            const mrrData = reversedTrends.map(t => t.mrr);
+            // Use trends as-is (newest month on the right)
+            const labels = trends.map(t => t.month_name);
+            const mrrData = trends.map(t => t.mrr);
 
             // Destroy existing chart if it exists
             if (mrrChart) {

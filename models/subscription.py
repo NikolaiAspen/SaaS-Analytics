@@ -72,7 +72,10 @@ class SyncStatus(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     last_sync_time = Column(DateTime, nullable=False)
+    sync_type = Column(String, default="incremental")  # "full" or "incremental"
     subscriptions_synced = Column(Integer, default=0)
+    invoices_synced = Column(Integer, default=0)
+    creditnotes_synced = Column(Integer, default=0)
     success = Column(Boolean, default=True)
     error_message = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

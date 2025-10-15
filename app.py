@@ -20,6 +20,51 @@ from models.subscription import Subscription, MetricsSnapshot, SyncStatus, Month
 from models.invoice import Invoice, InvoiceLineItem, InvoiceMRRSnapshot
 from auth import verify_credentials
 
+# Helper function for safe printing (Windows console Unicode handling)
+def safe_print(message: str):
+    """Print with Unicode support for Windows console"""
+    try:
+        print(message, flush=True)
+    except UnicodeEncodeError:
+        # Replace Unicode characters with ASCII equivalents for Windows console
+        print(message.encode('ascii', errors='replace').decode('ascii'), flush=True)
+
+# Global sync progress tracker
+sync_progress = {
+    "is_syncing": False,
+    "stage": "",
+    "current": 0,
+    "total": 0,
+    "percentage": 0,
+    "message": "",
+    "created": 0,
+    "updated": 0,
+}
+
+def update_sync_progress(stage: str = None, current: int = None, total: int = None,
+                         message: str = None, created: int = None, updated: int = None):
+    """Update global sync progress"""
+    if stage is not None:
+        sync_progress["stage"] = stage
+    if current is not None:
+        sync_progress["current"] = current
+    if total is not None:
+        sync_progress["total"] = total
+    if message is not None:
+        sync_progress["message"] = message
+    if created is not None:
+        sync_progress["created"] = created
+    if updated is not None:
+        sync_progress["updated"] = updated
+
+    # Recalculate percentage using stored values (not parameters)
+    stored_current = sync_progress.get("current", 0)
+    stored_total = sync_progress.get("total", 0)
+    if stored_total and stored_total > 0:
+        sync_progress["percentage"] = round((stored_current / stored_total) * 100, 1)
+    else:
+        sync_progress["percentage"] = 0
+
 # Global scheduler instance
 scheduler = AsyncIOScheduler()
 
@@ -303,12 +348,20 @@ async def sync_subscriptions(
     zoho: ZohoClient = Depends(get_zoho_client),
     session: AsyncSession = Depends(get_session),
     force_full: bool = False,
+    sync_subscriptions: bool = True,
+    sync_invoices: bool = True,
+    sync_creditnotes: bool = True,
 ):
     """
-    Sync subscriptions from Zoho Billing to local database
+    Sync data from Zoho Billing to local database
+
+    Selective sync allows you to sync only what you need for faster processing.
 
     Args:
         force_full: If True, perform a full sync regardless of last sync time
+        sync_subscriptions: If True, sync subscription data (default: True)
+        sync_invoices: If True, sync invoice data (default: True)
+        sync_creditnotes: If True, sync credit note data (default: True)
     """
     try:
         # Get last successful sync time
@@ -328,96 +381,96 @@ async def sync_subscriptions(
         else:
             print("Force full sync requested")
 
-        # Fetch subscriptions from Zoho (all statuses, including cancelled, to get accurate historical data)
-        # Note: We don't filter by status so we can track cancelled subscriptions for accurate churn
-        zoho_subs = await zoho.get_all_subscriptions(last_modified_time=last_modified_time)
+        # Mark sync as started
+        sync_progress["is_syncing"] = True
 
+        # Initialize counters
         synced_count = 0
+        invoice_stats = {"invoices_synced": 0, "creditnotes_synced": 0}
 
-        # Log first subscription to see all available fields
-        if len(zoho_subs) > 0:
-            print("\n=== SAMPLE ZOHO SUBSCRIPTION (first sub) ===")
-            import json
-            print(json.dumps(zoho_subs[0], indent=2))
-            print("=" * 80 + "\n")
+        # === SUBSCRIPTION SYNC (if enabled) ===
+        if sync_subscriptions:
+            update_sync_progress(stage="subscriptions", message="Henter subscriptions fra Zoho...", current=0, total=1)
 
-        for sub_data in zoho_subs:
-            # Parse dates with better error handling
-            def parse_date(date_value):
-                if not date_value:
-                    return None
-                try:
-                    # If already a datetime object (from Zoho API), just strip timezone
-                    if isinstance(date_value, datetime):
-                        return date_value.replace(tzinfo=None)
+            # Fetch subscriptions from Zoho (all statuses, including cancelled, to get accurate historical data)
+            # Note: We don't filter by status so we can track cancelled subscriptions for accurate churn
+            print("\n=== Syncing subscriptions ===")
+            print(f"Fetching all subscriptions from Zoho...")
+            if last_modified_time:
+                print(f"  (modified since {last_modified_time})")
 
-                    # Handle string formats from Zoho
-                    date_str = str(date_value).strip()
-                    if "T" in date_str:
-                        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-                        # Remove timezone info for PostgreSQL compatibility
-                        return dt.replace(tzinfo=None)
-                    else:
-                        # Try parsing as date only
-                        from dateutil import parser
-                        dt = parser.parse(date_str)
-                        # Remove timezone info for PostgreSQL compatibility
-                        return dt.replace(tzinfo=None)
-                except Exception as e:
-                    print(f"Warning: Failed to parse date '{date_value}': {e}")
-                    return None
+            zoho_subs = await zoho.get_all_subscriptions(last_modified_time=last_modified_time)
+            total_subs = len(zoho_subs)
+            print(f"Total subscriptions fetched: {total_subs}")
 
-            created_time = parse_date(sub_data.get("created_time"))
-            activated_at = parse_date(sub_data.get("activated_at"))
-            cancelled_at = parse_date(sub_data.get("cancelled_at"))
-            expires_at = parse_date(sub_data.get("expires_at"))
+            update_sync_progress(total=total_subs, current=0, message=f"Synkroniserer {total_subs} subscriptions...")
 
-            # For non_renewing subscriptions, use scheduled_cancellation_date as expiry date
-            if sub_data.get("status") == "non_renewing":
-                scd_raw = sub_data.get("scheduled_cancellation_date")
-                print(f"DEBUG: Found non_renewing: {sub_data.get('customer_name')}, raw scd: '{scd_raw}'")
-                scheduled_cancellation = parse_date(scd_raw)
-                if scheduled_cancellation:
-                    expires_at = scheduled_cancellation
-                    print(f"  ✓ expires_at set to: {expires_at}")
-                else:
-                    print(f"  ✗ parse_date returned None")
+            created_count = 0
+            updated_count = 0
 
-            # Extract custom fields (vessel and call sign)
-            vessel_name = None
-            call_sign = None
-            custom_fields = sub_data.get("custom_fields", [])
-            for field in custom_fields:
-                label = field.get("label", "")
-                if label == "Fartøy" or field.get("customfield_id") == "Fartøy":
-                    vessel_name = field.get("value")
-                elif label in ["Kallesignal", "Radiokallesignal"] or field.get("customfield_id") in ["Kallesignal", "Radiokallesignal"]:
-                    call_sign = field.get("value")
+            # Log first subscription to see all available fields (only in debug mode)
+            if len(zoho_subs) > 0 and settings.app_env == "dev":
+                print("\n=== SAMPLE ZOHO SUBSCRIPTION (first sub) ===")
+                import json
+                print(json.dumps(zoho_subs[0], indent=2))
+                print("=" * 80 + "\n")
 
-            # Create or update subscription
-            subscription = await session.get(Subscription, sub_data["subscription_id"])
+            for sub_data in zoho_subs:
+                # Parse dates with better error handling
+                def parse_date(date_value):
+                    if not date_value:
+                        return None
+                    try:
+                        # If already a datetime object (from Zoho API), just strip timezone
+                        if isinstance(date_value, datetime):
+                            return date_value.replace(tzinfo=None)
 
-            if subscription:
-                # Update existing
-                subscription.customer_id = sub_data.get("customer_id", "")
-                subscription.customer_name = sub_data.get("customer_name", "")
-                subscription.plan_code = sub_data.get("plan_code", "")
-                subscription.plan_name = sub_data.get("plan_name", "")
-                subscription.status = sub_data.get("status", "")
-                subscription.amount = float(sub_data.get("amount", 0))
-                subscription.currency_code = sub_data.get("currency_code", "NOK")
-                # Note: Zoho sends interval as number and interval_unit as text (e.g. "months", "years")
-                subscription.interval = sub_data.get("interval_unit", "months")  # "months" or "years"
-                subscription.interval_unit = int(sub_data.get("interval", 1))  # 1, 2, 3, etc.
-                subscription.vessel_name = vessel_name
-                subscription.call_sign = call_sign
-                subscription.created_time = created_time
-                subscription.activated_at = activated_at
-                subscription.cancelled_at = cancelled_at
-                subscription.expires_at = expires_at
-                subscription.last_synced = datetime.utcnow()
-            else:
-                # Create new
+                        # Handle string formats from Zoho
+                        date_str = str(date_value).strip()
+                        if "T" in date_str:
+                            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                            # Remove timezone info for PostgreSQL compatibility
+                            return dt.replace(tzinfo=None)
+                        else:
+                            # Try parsing as date only
+                            from dateutil import parser
+                            dt = parser.parse(date_str)
+                            # Remove timezone info for PostgreSQL compatibility
+                            return dt.replace(tzinfo=None)
+                    except Exception as e:
+                        print(f"Warning: Failed to parse date '{date_value}': {e}")
+                        return None
+
+                created_time = parse_date(sub_data.get("created_time"))
+                activated_at = parse_date(sub_data.get("activated_at"))
+                cancelled_at = parse_date(sub_data.get("cancelled_at"))
+                expires_at = parse_date(sub_data.get("expires_at"))
+
+                # For non_renewing subscriptions, use scheduled_cancellation_date as expiry date
+                if sub_data.get("status") == "non_renewing":
+                    scd_raw = sub_data.get("scheduled_cancellation_date")
+                    scheduled_cancellation = parse_date(scd_raw)
+                    if scheduled_cancellation:
+                        expires_at = scheduled_cancellation
+
+                # Extract custom fields (vessel and call sign)
+                vessel_name = None
+                call_sign = None
+                custom_fields = sub_data.get("custom_fields", [])
+                for field in custom_fields:
+                    label = field.get("label", "")
+                    if label == "Fartøy" or field.get("customfield_id") == "Fartøy":
+                        vessel_name = field.get("value")
+                    elif label in ["Kallesignal", "Radiokallesignal"] or field.get("customfield_id") in ["Kallesignal", "Radiokallesignal"]:
+                        call_sign = field.get("value")
+
+                # Create or update subscription using merge to avoid duplicate key errors
+                # Check if exists first to track created vs updated (disable autoflush to prevent premature INSERT)
+                with session.no_autoflush:
+                    existing = await session.get(Subscription, sub_data["subscription_id"])
+                    is_new = existing is None
+
+                # Create subscription object (merge will handle insert or update)
                 subscription = Subscription(
                     id=sub_data["subscription_id"],
                     customer_id=sub_data.get("customer_id", ""),
@@ -436,91 +489,188 @@ async def sync_subscriptions(
                     activated_at=activated_at,
                     cancelled_at=cancelled_at,
                     expires_at=expires_at,
+                    last_synced=datetime.utcnow(),
                 )
-                session.add(subscription)
 
-            synced_count += 1
+                # Use merge to handle both insert and update automatically
+                await session.merge(subscription)
 
-        # Save sync status
-        sync_status = SyncStatus(
-            last_sync_time=datetime.utcnow(),
-            subscriptions_synced=synced_count,
-            success=True,
-        )
-        session.add(sync_status)
+                if is_new:
+                    created_count += 1
+                else:
+                    updated_count += 1
 
-        await session.commit()
+                synced_count += 1
 
-        # Automatically generate historical snapshots on full sync
-        calculator = MetricsCalculator(session)
+                # Commit every 50 subscriptions to avoid memory buildup and autoflush issues
+                if synced_count % 50 == 0:
+                    await session.commit()
+                    progress_pct = (synced_count / total_subs) * 100 if total_subs > 0 else 0
+                    print(f"  Progress: {synced_count}/{total_subs} ({progress_pct:.1f}%) - Created: {created_count}, Updated: {updated_count}")
+                    update_sync_progress(current=synced_count, created=created_count, updated=updated_count)
 
-        if not last_modified_time:  # Full sync
-            print("\n=== Generating historical snapshots ===")
-            from dateutil.relativedelta import relativedelta
+            # Summary log
+            print(f"\n{'='*60}")
+            safe_print(f"✓ Subscription sync complete")
+            print(f"{'='*60}")
+            print(f"Total processed: {synced_count}")
+            print(f"  - New subscriptions: {created_count}")
+            print(f"  - Updated subscriptions: {updated_count}")
 
-            today = datetime.utcnow()
-            snapshots_created = []
+            # Save sync status
+            sync_status = SyncStatus(
+                last_sync_time=datetime.utcnow(),
+                subscriptions_synced=synced_count,
+                success=True,
+            )
+            session.add(sync_status)
 
-            # Generate snapshots for last 12 months
-            for i in range(12):
-                month_date = today - relativedelta(months=i)
-                end_of_month = datetime(month_date.year, month_date.month, 1) + relativedelta(months=1) - relativedelta(days=1)
-                end_of_month = end_of_month.replace(hour=23, minute=59, second=59)
+            await session.commit()
 
-                month_str = month_date.strftime("%Y-%m")
+            # Automatically generate historical snapshots on full sync
+            calculator = MetricsCalculator(session)
 
+            if not last_modified_time:  # Full sync
+                print("\n=== Generating historical snapshots ===")
+                from dateutil.relativedelta import relativedelta
+
+                today = datetime.utcnow()
+                snapshots_created = []
+
+                # Generate snapshots for last 12 months
+                for i in range(12):
+                    month_date = today - relativedelta(months=i)
+                    end_of_month = datetime(month_date.year, month_date.month, 1) + relativedelta(months=1) - relativedelta(days=1)
+                    end_of_month = end_of_month.replace(hour=23, minute=59, second=59)
+
+                    month_str = month_date.strftime("%Y-%m")
+
+                    try:
+                        await calculator.save_monthly_snapshot(month_str, end_of_month)
+                        snapshots_created.append(month_str)
+                        print(f"Created snapshot for {month_str}")
+                    except Exception as e:
+                        print(f"Warning: Failed to create snapshot for {month_str}: {e}")
+
+                print(f"Generated {len(snapshots_created)} historical snapshots")
+            else:
+                # Incremental sync - just update current month
+                current_month = datetime.utcnow().strftime("%Y-%m")
                 try:
-                    await calculator.save_monthly_snapshot(month_str, end_of_month)
-                    snapshots_created.append(month_str)
-                    print(f"Created snapshot for {month_str}")
+                    await calculator.save_monthly_snapshot(current_month, datetime.utcnow())
+                    print(f"Updated snapshot for {current_month}")
                 except Exception as e:
-                    print(f"Warning: Failed to create snapshot for {month_str}: {e}")
-
-            print(f"Generated {len(snapshots_created)} historical snapshots")
+                    print(f"Warning: Failed to save monthly snapshot: {e}")
         else:
-            # Incremental sync - just update current month
-            current_month = datetime.utcnow().strftime("%Y-%m")
-            try:
-                await calculator.save_monthly_snapshot(current_month, datetime.utcnow())
-                print(f"Updated snapshot for {current_month}")
-            except Exception as e:
-                print(f"Warning: Failed to save monthly snapshot: {e}")
+            # Subscription sync disabled
+            print("\n=== Subscription sync skipped (disabled) ===")
 
-        # Sync invoices (incremental by default - last 7 days)
-        print("\n=== Syncing invoices ===")
-        invoice_sync_service = InvoiceSyncService(session, zoho)
+        # === INVOICE/CREDIT NOTE SYNC (if enabled) ===
+        if sync_invoices or sync_creditnotes:
+            print("\n=== Syncing invoices ===")
+            update_sync_progress(stage="invoices", message="Synkroniserer fakturaer og kreditnotaer...", current=0, total=1)
 
-        # For incremental sync, only fetch last 7 days
-        # For full sync, fetch last 60 days (to avoid API limits)
-        if last_modified_time:
-            since = datetime.utcnow() - timedelta(days=7)
-            print(f"Syncing invoices modified since {since}")
+            invoice_sync_service = InvoiceSyncService(session, zoho)
+
+            # For incremental sync, only fetch last 7 days
+            # For full sync, fetch last 60 days (to avoid API limits)
+            if last_modified_time:
+                since = datetime.utcnow() - timedelta(days=7)
+                print(f"Syncing invoices modified since {since}")
+            else:
+                since = datetime.utcnow() - timedelta(days=60)
+                print(f"Full sync: Fetching invoices from last 60 days ({since})")
+
+            invoice_stats = await invoice_sync_service.sync_incremental(since=since, progress_callback=update_sync_progress)
+
+            print(f"Invoice sync complete: {invoice_stats['invoices_synced']} invoices, {invoice_stats['creditnotes_synced']} credit notes")
         else:
-            since = datetime.utcnow() - timedelta(days=60)
-            print(f"Full sync: Fetching invoices from last 60 days ({since})")
-
-        invoice_stats = await invoice_sync_service.sync_incremental(since=since)
-
-        print(f"Invoice sync complete: {invoice_stats['invoices_synced']} invoices, {invoice_stats['creditnotes_synced']} credit notes")
+            # Invoice sync disabled
+            print("\n=== Invoice sync skipped (disabled) ===")
 
         sync_type = "incremental" if last_modified_time else "full"
+
+        # Save successful sync status to database
+        try:
+            sync_status = SyncStatus(
+                last_sync_time=datetime.utcnow(),
+                sync_type=sync_type,
+                subscriptions_synced=synced_count,
+                invoices_synced=invoice_stats['invoices_synced'],
+                creditnotes_synced=invoice_stats['creditnotes_synced'],
+                success=True,
+            )
+            session.add(sync_status)
+            await session.commit()
+            print(f"✓ Saved sync status to database")
+        except Exception as e:
+            print(f"Warning: Failed to save sync status: {e}")
+            # Don't fail the sync if we can't save status
+
+        # Mark sync as complete and update progress with detailed summary
+        sync_progress["is_syncing"] = False
+        sync_progress["last_sync_result"] = {
+            "success": True,
+            "sync_type": sync_type,
+            "subscriptions": synced_count,
+            "invoices": invoice_stats['invoices_synced'],
+            "creditnotes": invoice_stats['creditnotes_synced'],
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        # Build completion message based on what was synced
+        sync_parts = []
+        if sync_subscriptions:
+            sync_parts.append(f"{synced_count} subscriptions")
+        if sync_invoices or sync_creditnotes:
+            sync_parts.append(f"{invoice_stats['invoices_synced']} fakturaer")
+            sync_parts.append(f"{invoice_stats['creditnotes_synced']} kreditnotaer")
+        completion_msg = "✓ Synkronisering fullført! " + ", ".join(sync_parts) if sync_parts else "✓ Synkronisering fullført (ingen data synkronisert)"
+
+        update_sync_progress(
+            stage="complete",
+            message=completion_msg,
+            current=1,
+            total=1
+        )
+
+        # Build detailed message for return
+        synced_items = []
+        if sync_subscriptions:
+            synced_items.append(f"{synced_count} subscriptions")
+        if sync_invoices or sync_creditnotes:
+            synced_items.append(f"{invoice_stats['invoices_synced']} invoices")
+            synced_items.append(f"{invoice_stats['creditnotes_synced']} credit notes")
+
+        if synced_items:
+            detail_message = f"Successfully synced {', '.join(synced_items)} ({sync_type} sync)."
+        else:
+            detail_message = f"No data synced (all sync options disabled)."
+
         return {
             "status": "success",
             "sync_type": sync_type,
             "synced_count": synced_count,
             "invoices_synced": invoice_stats['invoices_synced'],
             "creditnotes_synced": invoice_stats['creditnotes_synced'],
-            "message": f"Successfully synced {synced_count} subscriptions, {invoice_stats['invoices_synced']} invoices, and {invoice_stats['creditnotes_synced']} credit notes ({sync_type} sync).",
+            "message": detail_message,
         }
 
     except Exception as e:
         await session.rollback()
 
+        # Mark sync as failed
+        sync_progress["is_syncing"] = False
+        update_sync_progress(stage="error", message=f"Feil: {str(e)}")
+
         # Save failed sync status
         try:
             sync_status = SyncStatus(
                 last_sync_time=datetime.utcnow(),
+                sync_type="unknown",
                 subscriptions_synced=0,
+                invoices_synced=0,
+                creditnotes_synced=0,
                 success=False,
                 error_message=str(e),
             )
@@ -537,6 +687,55 @@ async def sync_subscriptions(
         except UnicodeEncodeError:
             print(error_detail.encode('ascii', errors='replace').decode('ascii'), flush=True)
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+
+@app.get("/api/sync/progress")
+async def get_sync_progress():
+    """
+    Get current sync progress for real-time updates
+    """
+    return sync_progress
+
+
+@app.get("/api/sync/history")
+async def get_sync_history(
+    limit: int = 50,
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Get sync history (last N syncs)
+    """
+    try:
+        stmt = select(SyncStatus).order_by(SyncStatus.last_sync_time.desc()).limit(limit)
+        result = await session.execute(stmt)
+        sync_records = result.scalars().all()
+
+        history = []
+        for record in sync_records:
+            history.append({
+                "id": record.id,
+                "timestamp": record.last_sync_time.isoformat() if record.last_sync_time else None,
+                "sync_type": record.sync_type,
+                "success": record.success,
+                "subscriptions_synced": record.subscriptions_synced,
+                "invoices_synced": record.invoices_synced,
+                "creditnotes_synced": record.creditnotes_synced,
+                "error_message": record.error_message,
+                "created_at": record.created_at.isoformat() if record.created_at else None,
+            })
+
+        return {
+            "status": "success",
+            "count": len(history),
+            "history": history
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "history": []
+        }
 
 
 @app.get("/api/metrics")
@@ -3170,7 +3369,7 @@ async def sync_invoices(
                     print(f"Progress: {synced_count}/{total_invoices} invoices ({progress_pct:.1f}%)")
 
             await session.commit()
-            print(f"✓ Synced {synced_count} invoices, skipped {skipped_count} unchanged")
+            safe_print(f"✓ Synced {synced_count} invoices, skipped {skipped_count} unchanged")
 
         # Sync credit notes
         print("\nFetching credit notes from Zoho...")
@@ -3352,7 +3551,7 @@ async def sync_invoices(
                     print(f"Progress: {cn_synced_count}/{total_creditnotes} credit notes ({progress_pct:.1f}%)")
 
             await session.commit()
-            print(f"✓ Synced {cn_synced_count} credit notes with line items")
+            safe_print(f"✓ Synced {cn_synced_count} credit notes with line items")
 
         # Generate monthly snapshots for last 12 months
         print("\nGenerating monthly MRR snapshots...")
@@ -3366,11 +3565,11 @@ async def sync_invoices(
             try:
                 await invoice_service.generate_monthly_snapshot(month_str)
                 snapshots_created.append(month_str)
-                print(f"  ✓ Created snapshot for {month_str}")
+                safe_print(f"  ✓ Created snapshot for {month_str}")
             except Exception as e:
-                print(f"  ✗ Failed to create snapshot for {month_str}: {e}")
+                safe_print(f"  ✗ Failed to create snapshot for {month_str}: {e}")
 
-        print(f"✓ Generated {len(snapshots_created)} monthly snapshots")
+        safe_print(f"✓ Generated {len(snapshots_created)} monthly snapshots")
 
         # Save sync status
         sync_status = InvoiceSyncStatus(
@@ -3381,7 +3580,7 @@ async def sync_invoices(
         )
         session.add(sync_status)
         await session.commit()
-        print(f"✓ Saved sync status")
+        safe_print(f"✓ Saved sync status")
 
         return {
             "status": "success",

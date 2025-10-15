@@ -30,12 +30,13 @@ class InvoiceSyncService:
         self.zoho = zoho_client
         self.invoice_service = InvoiceService(session)
 
-    async def sync_incremental(self, since: Optional[datetime] = None) -> Dict:
+    async def sync_incremental(self, since: Optional[datetime] = None, progress_callback=None) -> Dict:
         """
         Sync only new/modified invoices and credit notes since last sync
 
         Args:
             since: Only sync items modified after this date. If None, syncs last 7 days.
+            progress_callback: Optional callback function to report progress
 
         Returns:
             Dict with sync statistics
@@ -56,12 +57,18 @@ class InvoiceSyncService:
 
         try:
             # 1. Sync invoices
-            invoice_stats = await self._sync_invoices_since(since)
+            if progress_callback:
+                progress_callback(stage="invoices", message="Synkroniserer fakturaer...", current=0, total=1)
+
+            invoice_stats = await self._sync_invoices_since(since, progress_callback)
             stats["invoices_synced"] = invoice_stats["count"]
             stats["line_items_processed"] += invoice_stats["line_items"]
 
             # 2. Sync credit notes
-            cn_stats = await self._sync_creditnotes_since(since)
+            if progress_callback:
+                progress_callback(stage="creditnotes", message="Synkroniserer kreditnotaer...", current=0, total=1)
+
+            cn_stats = await self._sync_creditnotes_since(since, progress_callback)
             stats["creditnotes_synced"] = cn_stats["count"]
             stats["line_items_processed"] += cn_stats["line_items"]
 
@@ -97,7 +104,7 @@ class InvoiceSyncService:
             await self.session.rollback()
             raise Exception(f"Invoice sync failed: {str(e)}")
 
-    async def _sync_invoices_since(self, since: datetime) -> Dict:
+    async def _sync_invoices_since(self, since: datetime, progress_callback=None) -> Dict:
         """Sync invoices modified since given date"""
         print(f"\nSyncing invoices modified since {since.date()}...")
 
@@ -146,30 +153,63 @@ class InvoiceSyncService:
 
                 print(f"  Page {page}: {len(filtered_invoices)}/{len(invoices)} invoices match filter")
 
-                # Process each invoice
-                for inv_data in filtered_invoices:
-                    try:
-                        invoice_id = inv_data["invoice_id"]
+                # Calculate rough total estimate
+                estimated_total = synced_count + len(filtered_invoices)
 
-                        # Get full invoice details with line items
-                        detail_response = await client.get(
-                            f"{self.zoho.base_url}/billing/v1/invoices/{invoice_id}",
-                            headers=headers
+                # Update progress with count
+                if progress_callback and filtered_invoices:
+                    progress_callback(
+                        stage="invoices",
+                        message=f"Synkroniserer fakturaer...",
+                        current=synced_count,
+                        total=estimated_total
+                    )
+
+                # Process invoices in parallel batches for speed
+                batch_size = 10
+                for i in range(0, len(filtered_invoices), batch_size):
+                    batch = filtered_invoices[i:i+batch_size]
+
+                    # Fetch all invoice details in parallel
+                    async def fetch_invoice_detail(inv_data):
+                        try:
+                            invoice_id = inv_data["invoice_id"]
+                            detail_response = await client.get(
+                                f"{self.zoho.base_url}/billing/v1/invoices/{invoice_id}",
+                                headers=headers
+                            )
+                            detail_response.raise_for_status()
+                            invoice_detail = detail_response.json().get("invoice", {})
+                            return (invoice_id, invoice_detail)
+                        except Exception as e:
+                            print(f"    ✗ Error fetching invoice {inv_data['invoice_id']}: {e}")
+                            return None
+
+                    # Fetch batch in parallel
+                    results = await asyncio.gather(*[fetch_invoice_detail(inv) for inv in batch])
+
+                    # Save to database
+                    for result in results:
+                        if result:
+                            invoice_id, invoice_detail = result
+                            try:
+                                line_items = await self._save_invoice(invoice_id, invoice_detail)
+                                synced_count += 1
+                                line_items_count += line_items
+                            except Exception as e:
+                                print(f"    ✗ Error saving invoice {invoice_id}: {e}")
+
+                    # Update progress after each batch
+                    if progress_callback:
+                        progress_callback(
+                            stage="invoices",
+                            message=f"Synkroniserer fakturaer...",
+                            current=synced_count,
+                            total=estimated_total
                         )
-                        detail_response.raise_for_status()
-                        invoice_detail = detail_response.json().get("invoice", {})
 
-                        # Save invoice and line items
-                        line_items = await self._save_invoice(invoice_id, invoice_detail)
-                        synced_count += 1
-                        line_items_count += line_items
-
-                        # Rate limiting: sleep between requests
-                        await asyncio.sleep(0.3)
-
-                    except Exception as e:
-                        print(f"    ✗ Error syncing invoice {invoice_id}: {e}")
-                        continue
+                    # Small delay between batches (not between individual items)
+                    await asyncio.sleep(0.5)
 
                 # Check if there are more pages
                 if len(invoices) < per_page:
@@ -188,7 +228,7 @@ class InvoiceSyncService:
             "line_items": line_items_count
         }
 
-    async def _sync_creditnotes_since(self, since: datetime) -> Dict:
+    async def _sync_creditnotes_since(self, since: datetime, progress_callback=None) -> Dict:
         """Sync credit notes modified since given date"""
         print(f"\nSyncing credit notes modified since {since.date()}...")
 
@@ -235,30 +275,63 @@ class InvoiceSyncService:
 
                     print(f"  Page {page}: {len(filtered_cns)}/{len(creditnotes)} credit notes match filter")
 
-                    # Process each credit note
-                    for cn_data in filtered_cns:
-                        try:
-                            cn_id = cn_data["creditnote_id"]
+                    # Calculate rough total estimate
+                    cn_estimated_total = synced_count + len(filtered_cns)
 
-                            # Get full credit note details with line items
-                            detail_response = await client.get(
-                                f"{self.zoho.base_url}/billing/v1/creditnotes/{cn_id}",
-                                headers=headers
+                    # Update progress
+                    if progress_callback and filtered_cns:
+                        progress_callback(
+                            stage="creditnotes",
+                            message=f"Synkroniserer kreditnotaer...",
+                            current=synced_count,
+                            total=cn_estimated_total
+                        )
+
+                    # Process credit notes in parallel batches for speed
+                    batch_size = 10
+                    for i in range(0, len(filtered_cns), batch_size):
+                        batch = filtered_cns[i:i+batch_size]
+
+                        # Fetch all credit note details in parallel
+                        async def fetch_cn_detail(cn_data):
+                            try:
+                                cn_id = cn_data["creditnote_id"]
+                                detail_response = await client.get(
+                                    f"{self.zoho.base_url}/billing/v1/creditnotes/{cn_id}",
+                                    headers=headers
+                                )
+                                detail_response.raise_for_status()
+                                cn_detail = detail_response.json().get("creditnote", {})
+                                return (cn_id, cn_detail)
+                            except Exception as e:
+                                print(f"    ✗ Error fetching credit note {cn_data['creditnote_id']}: {e}")
+                                return None
+
+                        # Fetch batch in parallel
+                        results = await asyncio.gather(*[fetch_cn_detail(cn) for cn in batch])
+
+                        # Save to database
+                        for result in results:
+                            if result:
+                                cn_id, cn_detail = result
+                                try:
+                                    line_items = await self._save_creditnote(cn_id, cn_detail)
+                                    synced_count += 1
+                                    line_items_count += line_items
+                                except Exception as e:
+                                    print(f"    ✗ Error saving credit note {cn_id}: {e}")
+
+                        # Update progress after each batch
+                        if progress_callback:
+                            progress_callback(
+                                stage="creditnotes",
+                                message=f"Synkroniserer kreditnotaer...",
+                                current=synced_count,
+                                total=cn_estimated_total
                             )
-                            detail_response.raise_for_status()
-                            cn_detail = detail_response.json().get("creditnote", {})
 
-                            # Save credit note as negative invoice
-                            line_items = await self._save_creditnote(cn_id, cn_detail)
-                            synced_count += 1
-                            line_items_count += line_items
-
-                            # Rate limiting
-                            await asyncio.sleep(0.3)
-
-                        except Exception as e:
-                            print(f"    ✗ Error syncing credit note {cn_id}: {e}")
-                            continue
+                        # Small delay between batches
+                        await asyncio.sleep(0.5)
 
                     if len(creditnotes) < per_page:
                         has_more = False

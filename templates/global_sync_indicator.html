@@ -1,0 +1,151 @@
+<!-- Global Sync Status Indicator (appears on all pages) -->
+<div id="globalSyncIndicator" style="display: none; position: fixed; top: 20px; right: 20px; z-index: 9999; background: rgba(18, 25, 51, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 12px 16px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); min-width: 320px; max-width: 400px;">
+    <!-- Progress view (shown during sync) -->
+    <div id="syncProgressView" style="display: none;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 18px; height: 18px; border: 2px solid var(--good); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; flex-shrink: 0;"></div>
+            <div style="flex: 1;">
+                <div id="globalSyncStage" style="font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 4px;">Synkroniserer...</div>
+                <div id="globalSyncProgress" style="font-size: 11px; color: var(--muted);">0%</div>
+            </div>
+        </div>
+        <div id="globalSyncBar" style="width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin-top: 8px;">
+            <div id="globalSyncBarFill" style="width: 0%; height: 100%; background: var(--good); transition: width 0.3s;"></div>
+        </div>
+    </div>
+
+    <!-- Success view (shown after sync, stays until closed) -->
+    <div id="syncSuccessView" style="display: none;">
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <div style="width: 24px; height: 24px; background: var(--good); border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <span style="color: #0b1020; font-size: 16px; font-weight: bold;">✓</span>
+            </div>
+            <div style="flex: 1;">
+                <div style="font-size: 14px; font-weight: 600; color: var(--good); margin-bottom: 8px;">Synkronisering fullført!</div>
+                <div id="syncSuccessDetails" style="font-size: 12px; color: var(--muted); line-height: 1.5;">
+                    <!-- Details populated by JS -->
+                </div>
+            </div>
+            <button id="closeSyncSuccess" style="background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px; padding: 0; margin: 0; line-height: 1; flex-shrink: 0;" title="Lukk">×</button>
+        </div>
+    </div>
+
+    <style>
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        #closeSyncSuccess:hover {
+            color: var(--ink);
+        }
+    </style>
+</div>
+
+<script>
+    // Global sync status polling (works on all pages)
+    let globalSyncPollInterval = null;
+    let syncSuccessDismissed = false;
+
+    function updateGlobalSyncIndicator(progress) {
+        const indicator = document.getElementById('globalSyncIndicator');
+        const progressView = document.getElementById('syncProgressView');
+        const successView = document.getElementById('syncSuccessView');
+        const stageEl = document.getElementById('globalSyncStage');
+        const progressEl = document.getElementById('globalSyncProgress');
+        const barFillEl = document.getElementById('globalSyncBarFill');
+
+        if (progress.is_syncing) {
+            // Show progress view during sync
+            indicator.style.display = 'block';
+            progressView.style.display = 'block';
+            successView.style.display = 'none';
+            syncSuccessDismissed = false;
+
+            // Update stage text
+            const stageText = progress.stage === 'subscriptions' ? 'Synkroniserer subscriptions' :
+                             progress.stage === 'invoices' ? 'Synkroniserer fakturaer' :
+                             progress.stage === 'creditnotes' ? 'Synkroniserer kreditnotaer' :
+                             progress.message || 'Synkroniserer';
+            stageEl.textContent = stageText;
+
+            // Update progress text and bar
+            if (progress.total > 0) {
+                progressEl.textContent = `${progress.current}/${progress.total} (${progress.percentage}%)`;
+                barFillEl.style.width = `${progress.percentage}%`;
+            } else {
+                progressEl.textContent = 'Starter...';
+                barFillEl.style.width = '0%';
+            }
+        } else if (progress.stage === 'complete' && progress.last_sync_result && !syncSuccessDismissed) {
+            // Show persistent success message
+            const result = progress.last_sync_result;
+            const detailsEl = document.getElementById('syncSuccessDetails');
+
+            detailsEl.innerHTML = `
+                <div style="margin-bottom: 4px;">
+                    <strong>${result.subscriptions || 0}</strong> subscriptions<br>
+                    <strong>${result.invoices || 0}</strong> fakturaer<br>
+                    <strong>${result.creditnotes || 0}</strong> kreditnotaer
+                </div>
+                <div style="font-size: 11px; color: var(--muted); opacity: 0.7;">
+                    ${result.sync_type || 'incremental'} sync
+                </div>
+            `;
+
+            indicator.style.display = 'block';
+            progressView.style.display = 'none';
+            successView.style.display = 'block';
+
+            // Stop polling after showing success
+            if (globalSyncPollInterval) {
+                clearInterval(globalSyncPollInterval);
+                globalSyncPollInterval = null;
+            }
+        } else if (!progress.is_syncing && !syncSuccessDismissed && progress.stage !== 'complete') {
+            // Hide indicator if sync is not running and no success message to show
+            indicator.style.display = 'none';
+            if (globalSyncPollInterval) {
+                clearInterval(globalSyncPollInterval);
+                globalSyncPollInterval = null;
+            }
+        }
+    }
+
+    async function pollGlobalSyncProgress() {
+        try {
+            const response = await fetch('/api/sync/progress');
+            const progress = await response.json();
+            updateGlobalSyncIndicator(progress);
+        } catch (error) {
+            console.error('Failed to fetch global sync progress:', error);
+        }
+    }
+
+    // Start polling on page load
+    function startGlobalSyncPolling() {
+        // Check immediately
+        pollGlobalSyncProgress();
+
+        // Then check every 2 seconds
+        if (!globalSyncPollInterval) {
+            globalSyncPollInterval = setInterval(pollGlobalSyncProgress, 2000);
+        }
+    }
+
+    // Close button handler
+    document.addEventListener('DOMContentLoaded', () => {
+        const closeButton = document.getElementById('closeSyncSuccess');
+        if (closeButton) {
+            closeButton.addEventListener('click', () => {
+                syncSuccessDismissed = true;
+                document.getElementById('globalSyncIndicator').style.display = 'none';
+            });
+        }
+    });
+
+    // Start polling when page loads
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startGlobalSyncPolling);
+    } else {
+        startGlobalSyncPolling();
+    }
+</script>

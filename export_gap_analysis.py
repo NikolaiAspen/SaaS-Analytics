@@ -86,7 +86,35 @@ async def export_gap_to_excel(target_month: str) -> BytesIO:
                 worksheet.column_dimensions['D'].width = 20  # Kallesignal
                 worksheet.column_dimensions['E'].width = 30  # Status
 
-            # Sheet 3: Without Invoices (subscription men ingen faktura)
+            # Sheet 3: Ownership Changes (eierskifte)
+            ownership_changes = gap_data.get('customers_with_ownership_change_list', [])
+            if ownership_changes:
+                ownership_data = []
+                for customer in ownership_changes:
+                    ownership_data.append({
+                        'Ny Eier': customer['customer_name'],
+                        'Forrige Eier': customer.get('previous_owner', ''),
+                        'MRR (kr)': customer['mrr'],
+                        'Plan': customer.get('plan_name', ''),
+                        'Fartøy': customer.get('vessel_name', ''),
+                        'Kallesignal': customer.get('call_sign', ''),
+                        'Status': 'EIERSKIFTE - Faktura under forrige eier'
+                    })
+
+                df_ownership = pd.DataFrame(ownership_data)
+                df_ownership.to_excel(writer, sheet_name='Eierskifte', index=False)
+
+                # Format columns
+                worksheet = writer.sheets['Eierskifte']
+                worksheet.column_dimensions['A'].width = 40  # Ny Eier
+                worksheet.column_dimensions['B'].width = 40  # Forrige Eier
+                worksheet.column_dimensions['C'].width = 15  # MRR
+                worksheet.column_dimensions['D'].width = 30  # Plan
+                worksheet.column_dimensions['E'].width = 20  # Fartøy
+                worksheet.column_dimensions['F'].width = 20  # Kallesignal
+                worksheet.column_dimensions['G'].width = 50  # Status
+
+            # Sheet 4: Without Invoices (subscription men ingen faktura)
             without_invoices = gap_data.get('customers_without_invoices_list', [])
             if without_invoices:
                 without_invoices_data = []
@@ -112,16 +140,17 @@ async def export_gap_to_excel(target_month: str) -> BytesIO:
                 worksheet.column_dimensions['E'].width = 20  # Kallesignal
                 worksheet.column_dimensions['F'].width = 40  # Status
 
-            # Sheet 4: Summary
+            # Sheet 5: Summary
             summary_data = [
                 {'Kategori': 'Kunder med kundenavn-mismatch (subscription finnes)', 'Antall': gap_data.get('customers_with_name_mismatch', 0), 'MRR (kr)': gap_data.get('matched_gap_mrr', 0)},
                 {'Kategori': 'Kunder faktisk uten subscription', 'Antall': gap_data.get('customers_truly_without_subs', 0), 'MRR (kr)': gap_data.get('unmatched_gap_mrr', 0)},
+                {'Kategori': 'Eierskifter (faktura under forrige eier)', 'Antall': gap_data.get('customers_with_ownership_change', 0), 'MRR (kr)': '(subscription MRR)'},
                 {'Kategori': 'Kunder med subscription men ingen faktura', 'Antall': gap_data.get('customers_without_invoices', 0), 'MRR (kr)': '(subscription MRR)'},
                 {'Kategori': '', 'Antall': '', 'MRR (kr)': ''},
                 {'Kategori': 'Total gap MRR (truly unmatched)', 'Antall': '', 'MRR (kr)': gap_data.get('total_gap_mrr', 0)},
                 {'Kategori': 'Matched gap MRR (name mismatch)', 'Antall': '', 'MRR (kr)': gap_data.get('matched_gap_mrr', 0)},
                 {'Kategori': '', 'Antall': '', 'MRR (kr)': ''},
-                {'Kategori': '⚠️ Kreditterte fakturaer (ekskludert fra analysen)', 'Antall': gap_data.get('credited_invoices_count', 0), 'MRR (kr)': 'Utelatt fra gap'},
+                {'Kategori': 'Kreditterte fakturaer (ekskludert fra analysen)', 'Antall': gap_data.get('credited_invoices_count', 0), 'MRR (kr)': 'Utelatt fra gap'},
             ]
 
             df_summary = pd.DataFrame(summary_data)

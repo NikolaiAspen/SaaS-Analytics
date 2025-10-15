@@ -250,8 +250,23 @@
         </div>
         {% endif %}
 
-        <div style="margin-bottom: 16px;">
-            <button onclick="syncData()" style="background: var(--good); border: none; color: #0b1020; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500;">🔄 Synkroniser data fra Zoho</button>
+        <!-- Selective sync options -->
+        <div style="margin-bottom: 16px; padding: 14px; background: rgba(15, 21, 48, 0.6); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.06);">
+            <label style="display: block; margin-bottom: 10px; color: var(--ink); font-size: 14px; font-weight: 600;">Velg hva som skal synkroniseres:</label>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 14px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--muted); font-size: 14px;">
+                    <input type="checkbox" id="syncSubscriptions" checked style="width: 18px; height: 18px; cursor: pointer;">
+                    <span>📋 Subscriptions</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--muted); font-size: 14px;">
+                    <input type="checkbox" id="syncInvoices" checked style="width: 18px; height: 18px; cursor: pointer;">
+                    <span>🧾 Fakturaer og Kreditnotaer</span>
+                </label>
+            </div>
+            <div style="margin-bottom: 14px; padding: 8px; background: rgba(61, 220, 151, 0.1); border-radius: 6px; font-size: 12px; color: var(--muted);">
+                💡 <strong>Tips:</strong> Fakturaer/kreditnotaer synkroniseres sammen. Velg kun subscriptions for raskeste sync (~30 sek)
+            </div>
+            <button onclick="syncData()" style="background: var(--good); border: none; color: #0b1020; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500; width: 100%;">🔄 Synkroniser data fra Zoho</button>
         </div>
         <div id="syncStatus" style="display: none; margin-top: 12px; padding: 12px; border-radius: 10px; font-size: 14px;"></div>
 
@@ -354,21 +369,152 @@
     </div>
 
     <script>
+        let syncPollInterval = null;
+
+        function updateSyncStatus(progress) {
+            const statusDiv = document.getElementById('syncStatus');
+
+            if (!progress.is_syncing) {
+                // Clear polling
+                if (syncPollInterval) {
+                    clearInterval(syncPollInterval);
+                    syncPollInterval = null;
+                }
+                return;
+            }
+
+            // Show progress
+            const stageText = progress.stage === 'subscriptions' ? 'Synkroniserer subscriptions...' :
+                             progress.stage === 'invoices' ? 'Synkroniserer fakturaer og kreditnotaer...' :
+                             progress.message || 'Synkroniserer...';
+
+            const progressBar = progress.total > 0 ? `
+                <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; margin-top: 12px;">
+                    <div style="width: ${progress.percentage}%; height: 100%; background: var(--good); transition: width 0.3s;"></div>
+                </div>
+                <div style="font-size: 12px; margin-top: 8px; color: var(--muted);">
+                    ${progress.current} / ${progress.total} (${progress.percentage}%)
+                    ${progress.created > 0 || progress.updated > 0 ? `<br>Nye: ${progress.created}, Oppdatert: ${progress.updated}` : ''}
+                </div>
+            ` : '';
+
+            statusDiv.innerHTML = `
+                <div style="display: flex; align-items: flex-start; gap: 12px;">
+                    <div style="width: 20px; height: 20px; border: 2px solid var(--good); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; flex-shrink: 0; margin-top: 2px;"></div>
+                    <div style="flex: 1;">
+                        <strong>${stageText}</strong>
+                        ${progressBar}
+                    </div>
+                </div>
+                <style>
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                </style>
+            `;
+        }
+
+        async function pollSyncProgress() {
+            try {
+                const response = await fetch('/api/sync/progress');
+                const progress = await response.json();
+                updateSyncStatus(progress);
+            } catch (error) {
+                console.error('Failed to fetch sync progress:', error);
+            }
+        }
+
         async function syncData() {
+            // Get checkbox values
+            const syncSubscriptions = document.getElementById('syncSubscriptions').checked;
+            const syncInvoices = document.getElementById('syncInvoices').checked;
+
+            // Validate at least one option is selected
+            if (!syncSubscriptions && !syncInvoices) {
+                const statusDiv = document.getElementById('syncStatus');
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                statusDiv.style.borderLeft = '3px solid var(--bad)';
+                statusDiv.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 20px;">⚠️</span>
+                        <strong>Velg minst ett alternativ for synkronisering</strong>
+                    </div>
+                `;
+                return;
+            }
+
             const statusDiv = document.getElementById('syncStatus');
             statusDiv.style.display = 'block';
             statusDiv.style.background = 'rgba(159, 177, 255, 0.1)';
             statusDiv.style.color = 'var(--muted)';
-            statusDiv.innerHTML = '🔄 Synkroniserer subscriptions, fakturaer og kreditnoter fra Zoho Billing...';
+            statusDiv.style.borderLeft = '3px solid var(--muted)';
+            statusDiv.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 20px; height: 20px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                    <div>
+                        <strong>Starter synkronisering...</strong>
+                    </div>
+                </div>
+                <style>
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                </style>
+            `;
+
+            // Start polling progress every 1 second
+            syncPollInterval = setInterval(pollSyncProgress, 1000);
 
             try {
-                const response = await fetch('/api/sync', { method: 'POST' });
+                // Build query params (invoices includes creditnotes)
+                const params = new URLSearchParams({
+                    sync_subscriptions: syncSubscriptions,
+                    sync_invoices: syncInvoices,
+                    sync_creditnotes: syncInvoices  // Same as invoices since they sync together
+                });
+
+                const response = await fetch(`/api/sync?${params.toString()}`, { method: 'POST' });
                 const data = await response.json();
+
+                // Stop polling
+                if (syncPollInterval) {
+                    clearInterval(syncPollInterval);
+                    syncPollInterval = null;
+                }
 
                 if (response.ok) {
                     statusDiv.style.background = 'rgba(61, 220, 151, 0.1)';
                     statusDiv.style.color = 'var(--good)';
-                    statusDiv.innerHTML = `✅ ${data.message}`;
+                    statusDiv.style.borderLeft = '3px solid var(--good)';
+
+                    // Format detailed sync results
+                    const syncType = data.sync_type === 'incremental' ? 'Inkrementell' : 'Full';
+                    statusDiv.innerHTML = `
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                                <span style="font-size: 20px;">✅</span>
+                                <strong style="font-size: 16px;">Synkronisering fullført!</strong>
+                            </div>
+                            <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 14px; margin-left: 28px;">
+                                <span style="color: var(--muted);">Type:</span>
+                                <span style="color: var(--ink); font-weight: 500;">${syncType} synkronisering</span>
+
+                                <span style="color: var(--muted);">Subscriptions:</span>
+                                <span style="color: var(--ink); font-weight: 500;">${data.synced_count || 0} synkronisert</span>
+
+                                <span style="color: var(--muted);">Fakturaer:</span>
+                                <span style="color: var(--ink); font-weight: 500;">${data.invoices_synced || 0} synkronisert</span>
+
+                                <span style="color: var(--muted);">Kreditnotaer:</span>
+                                <span style="color: var(--ink); font-weight: 500;">${data.creditnotes_synced || 0} synkronisert</span>
+                            </div>
+                            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 13px; color: var(--muted);">
+                                💡 Siden oppdateres om 2 sekunder...
+                            </div>
+                        </div>
+                    `;
 
                     // Reload page after 2 seconds
                     setTimeout(() => window.location.reload(), 2000);
@@ -376,9 +522,29 @@
                     throw new Error(data.detail || 'Synkronisering feilet');
                 }
             } catch (error) {
+                // Stop polling
+                if (syncPollInterval) {
+                    clearInterval(syncPollInterval);
+                    syncPollInterval = null;
+                }
+
                 statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
                 statusDiv.style.color = 'var(--bad)';
-                statusDiv.innerHTML = `❌ Feil: ${error.message}`;
+                statusDiv.style.borderLeft = '3px solid var(--bad)';
+                statusDiv.innerHTML = `
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                            <span style="font-size: 20px;">❌</span>
+                            <strong style="font-size: 16px;">Synkronisering feilet</strong>
+                        </div>
+                        <div style="margin-left: 28px; font-size: 14px; color: var(--ink);">
+                            ${error.message}
+                        </div>
+                        <div style="margin-top: 12px; margin-left: 28px; font-size: 12px; opacity: 0.8;">
+                            💡 Sjekk konsollen for flere detaljer
+                        </div>
+                    </div>
+                `;
             }
         }
 

@@ -211,6 +211,11 @@ class InvoiceService:
         """
         Calculate total MRR for a specific month from all invoice and credit note line items
 
+        Uses "snapshot" approach (like subscription MRR):
+        - Calculates MRR as of the LAST DAY of the month (e.g., Sept 30, 2025 23:59:59)
+        - Only includes invoices that are ACTIVE on that specific date
+        - This makes it directly comparable to subscription-based MRR
+
         NOTE: Credit notes have negative MRR values, so they reduce the total MRR
 
         Args:
@@ -221,22 +226,31 @@ class InvoiceService:
         """
         from models.invoice import CreditNoteLineItem
 
-        # Parse target month
+        # Parse target month - use LAST DAY of month (like subscription snapshots)
         year, month = map(int, target_month.split('-'))
-        target_date = datetime(year, month, 1)
 
-        # Get all invoice line items that are active in this month
+        # Calculate last day of month
+        if month == 12:
+            month_end = datetime(year + 1, 1, 1) - relativedelta(days=1)
+        else:
+            month_end = datetime(year, month + 1, 1) - relativedelta(days=1)
+
+        # Set to end of day (23:59:59) for consistency
+        month_end = month_end.replace(hour=23, minute=59, second=59)
+
+        # Get all invoice line items that are active on the last day of month
+        # Logic: period must have started before month_end AND not yet ended
         stmt = select(InvoiceLineItem).where(
-            InvoiceLineItem.period_start_date <= target_date,
-            InvoiceLineItem.period_end_date >= target_date
+            InvoiceLineItem.period_start_date <= month_end,
+            InvoiceLineItem.period_end_date >= month_end
         )
         result = await self.session.execute(stmt)
         invoice_line_items = result.scalars().all()
 
-        # Get all credit note line items that are active in this month
+        # Get all credit note line items that are active on the last day of month
         stmt = select(CreditNoteLineItem).where(
-            CreditNoteLineItem.period_start_date <= target_date,
-            CreditNoteLineItem.period_end_date >= target_date
+            CreditNoteLineItem.period_start_date <= month_end,
+            CreditNoteLineItem.period_end_date >= month_end
         )
         result = await self.session.execute(stmt)
         credit_line_items = result.scalars().all()
@@ -251,7 +265,7 @@ class InvoiceService:
 
     async def get_unique_customers_for_month(self, target_month: str) -> int:
         """
-        Count unique customers with active MRR in a specific month
+        Count unique customers with active MRR on the last day of a specific month
 
         Args:
             target_month: Month in YYYY-MM format (e.g., "2025-10")
@@ -259,16 +273,23 @@ class InvoiceService:
         Returns:
             Number of unique customers
         """
-        # Parse target month
+        # Parse target month - use LAST DAY of month
         year, month = map(int, target_month.split('-'))
-        target_date = datetime(year, month, 1)
 
-        # Get all invoices with line items active in this month
+        # Calculate last day of month
+        if month == 12:
+            month_end = datetime(year + 1, 1, 1) - relativedelta(days=1)
+        else:
+            month_end = datetime(year, month + 1, 1) - relativedelta(days=1)
+
+        month_end = month_end.replace(hour=23, minute=59, second=59)
+
+        # Get all invoices with line items active on the last day of month
         stmt = select(func.count(func.distinct(Invoice.customer_id))).select_from(Invoice).join(
             InvoiceLineItem
         ).where(
-            InvoiceLineItem.period_start_date <= target_date,
-            InvoiceLineItem.period_end_date >= target_date
+            InvoiceLineItem.period_start_date <= month_end,
+            InvoiceLineItem.period_end_date >= month_end
         )
         result = await self.session.execute(stmt)
         count = result.scalar() or 0
@@ -297,31 +318,36 @@ class InvoiceService:
         # Calculate ARPU
         arpu = mrr / total_customers if total_customers > 0 else 0
 
-        # Count active invoices (invoices with line items active this month)
+        # Calculate last day of month for all queries
         year, month = map(int, target_month.split('-'))
-        target_date = datetime(year, month, 1)
+        if month == 12:
+            month_end = datetime(year + 1, 1, 1) - relativedelta(days=1)
+        else:
+            month_end = datetime(year, month + 1, 1) - relativedelta(days=1)
+        month_end = month_end.replace(hour=23, minute=59, second=59)
 
+        # Count active invoices (invoices with line items active on last day of month)
         stmt = select(func.count(func.distinct(Invoice.id))).select_from(Invoice).join(
             InvoiceLineItem
         ).where(
-            InvoiceLineItem.period_start_date <= target_date,
-            InvoiceLineItem.period_end_date >= target_date
+            InvoiceLineItem.period_start_date <= month_end,
+            InvoiceLineItem.period_end_date >= month_end
         )
         result = await self.session.execute(stmt)
         active_invoices = result.scalar() or 0
 
-        # Count invoice line items
+        # Count invoice line items active on last day of month
         stmt = select(func.count(InvoiceLineItem.id)).where(
-            InvoiceLineItem.period_start_date <= target_date,
-            InvoiceLineItem.period_end_date >= target_date
+            InvoiceLineItem.period_start_date <= month_end,
+            InvoiceLineItem.period_end_date >= month_end
         )
         result = await self.session.execute(stmt)
         invoice_lines = result.scalar() or 0
 
-        # Count credit note line items
+        # Count credit note line items active on last day of month
         stmt = select(func.count(CreditNoteLineItem.id)).where(
-            CreditNoteLineItem.period_start_date <= target_date,
-            CreditNoteLineItem.period_end_date >= target_date
+            CreditNoteLineItem.period_start_date <= month_end,
+            CreditNoteLineItem.period_end_date >= month_end
         )
         result = await self.session.execute(stmt)
         creditnote_lines = result.scalar() or 0
@@ -511,11 +537,12 @@ class InvoiceService:
         print(f"Gap Analysis: Found {len(credited_invoice_ids)} credited invoices to exclude")
 
         # Get all invoice line items for target month, excluding credited invoices
+        # Use month-end snapshot approach (same as subscription MRR calculation)
         stmt = select(InvoiceLineItem, Invoice).join(
             Invoice, InvoiceLineItem.invoice_id == Invoice.id
         ).where(
             InvoiceLineItem.period_start_date <= target_month_end,
-            InvoiceLineItem.period_end_date >= target_month_start,
+            InvoiceLineItem.period_end_date >= target_month_end,  # Month-end snapshot!
             ~Invoice.id.in_(credited_invoice_ids)  # Exclude credited invoices
         )
         result = await self.session.execute(stmt)
@@ -621,24 +648,61 @@ class InvoiceService:
         customers_truly_without_subs.sort(key=lambda x: x['mrr'], reverse=True)
 
         # Find customers with subscriptions but no invoices in this month
-        # This shows subscriptions that are active but weren't invoiced this month
+        # Also identify ownership changes (invoice exists with same call_sign but different customer)
         customers_without_invoices = []
+        customers_with_ownership_change = []
         invoice_customer_names = set(invoice_customers.keys())
+
+        # Build lookup of invoice customers by call sign
+        invoice_by_call_sign = {}
+        for inv_customer_name, inv_data in invoice_customers.items():
+            for call_sign in inv_data['call_signs']:
+                call_sign_clean = call_sign.strip().upper()
+                if call_sign_clean not in invoice_by_call_sign:
+                    invoice_by_call_sign[call_sign_clean] = []
+                invoice_by_call_sign[call_sign_clean].append({
+                    'customer_name': inv_customer_name,
+                    'mrr': inv_data['total_mrr']
+                })
 
         for sub in subscriptions:
             if sub.customer_name not in invoice_customer_names:
                 interval_months = sub.interval if sub.interval_unit == 'months' else (12 if sub.interval_unit == 'years' else 1)
                 mrr = (sub.amount / 1.25) / interval_months if sub.amount else 0
 
-                customers_without_invoices.append({
+                # Check if there's an invoice with same call_sign but different customer (ownership change)
+                is_ownership_change = False
+                previous_owner = None
+                previous_owner_mrr = 0
+
+                if sub.call_sign:
+                    call_sign_clean = sub.call_sign.strip().upper()
+                    if call_sign_clean in invoice_by_call_sign:
+                        # Found invoice with same call sign but different customer name
+                        for inv_match in invoice_by_call_sign[call_sign_clean]:
+                            if inv_match['customer_name'] != sub.customer_name:
+                                is_ownership_change = True
+                                previous_owner = inv_match['customer_name']
+                                previous_owner_mrr = inv_match['mrr']
+                                break
+
+                customer_info = {
                     'customer_name': sub.customer_name,
                     'mrr': mrr,
                     'plan_name': sub.plan_name,
                     'vessel_name': sub.vessel_name or '',
-                    'call_sign': sub.call_sign or ''
-                })
+                    'call_sign': sub.call_sign or '',
+                    'previous_owner': previous_owner,
+                    'previous_owner_mrr': previous_owner_mrr
+                }
+
+                if is_ownership_change:
+                    customers_with_ownership_change.append(customer_info)
+                else:
+                    customers_without_invoices.append(customer_info)
 
         customers_without_invoices.sort(key=lambda x: x['mrr'], reverse=True)
+        customers_with_ownership_change.sort(key=lambda x: x['mrr'], reverse=True)
 
         return {
             'target_month': target_month,
@@ -648,11 +712,13 @@ class InvoiceService:
             'customers_with_name_mismatch': len(customers_with_name_mismatch),
             'customers_truly_without_subs': len(customers_truly_without_subs),
             'customers_without_invoices': len(customers_without_invoices),
+            'customers_with_ownership_change': len(customers_with_ownership_change),
             'matched_by_call_sign': matched_by_call_sign,
             'matched_by_vessel': matched_by_vessel,
             'unmatched_customers': unmatched,
             'credited_invoices_count': len(credited_invoice_ids),  # Number of credited invoices excluded
             'customers_with_name_mismatch_list': customers_with_name_mismatch,  # ALL customers
             'customers_truly_without_subs_list': customers_truly_without_subs,  # ALL customers
-            'customers_without_invoices_list': customers_without_invoices,  # ALL customers
+            'customers_without_invoices_list': customers_without_invoices,  # ALL customers (truly missing)
+            'customers_with_ownership_change_list': customers_with_ownership_change,  # Ownership changes
         }
