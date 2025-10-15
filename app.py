@@ -330,6 +330,31 @@ def get_analysis_service() -> AnalysisService:
     )
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint - shows database connection info"""
+    from database import engine
+    import os
+
+    # Get DATABASE_URL from environment or settings
+    db_url_from_env = os.getenv("DATABASE_URL", "Not set in environment")
+    db_url_from_settings = settings.database_url
+
+    # Get actual URL being used by SQLAlchemy engine
+    actual_db_url = str(engine.url)
+
+    return {
+        "status": "healthy",
+        "database": {
+            "env_variable": db_url_from_env[:80] + "..." if len(db_url_from_env) > 80 else db_url_from_env,
+            "settings": db_url_from_settings[:80] + "..." if len(db_url_from_settings) > 80 else db_url_from_settings,
+            "engine_url": actual_db_url[:80] + "..." if len(actual_db_url) > 80 else actual_db_url,
+            "has_asyncpg": "+asyncpg" in actual_db_url,
+        },
+        "app_env": settings.app_env,
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, session: AsyncSession = Depends(get_session)):
     """Homepage - redirect to dashboard"""

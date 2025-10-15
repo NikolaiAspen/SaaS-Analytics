@@ -7,9 +7,15 @@ from models import User, AppVersion, EmailLog
 # Force reload for churned_customers column
 
 
+# Fix DATABASE_URL if it's missing +asyncpg (Railway compatibility)
+database_url = settings.database_url
+if database_url.startswith("postgresql://") and "+asyncpg" not in database_url:
+    database_url = database_url.replace("postgresql://", "postgresql+asyncpg://")
+    print(f"[INFO] Fixed DATABASE_URL to use asyncpg driver: {database_url[:50]}...")
+
 # Create async engine
 engine = create_async_engine(
-    settings.database_url,
+    database_url,
     echo=settings.app_env == "dev",
     poolclass=NullPool if "sqlite" in settings.database_url else None,
 )
