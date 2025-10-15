@@ -331,9 +331,11 @@ def get_analysis_service() -> AnalysisService:
 
 
 @app.get("/health")
-async def health_check():
+async def health_check(session: AsyncSession = Depends(get_session)):
     """Health check endpoint - shows database connection info"""
     from database import engine
+    from models.invoice import Invoice, InvoiceLineItem
+    from sqlalchemy import select
     import os
 
     # Get DATABASE_URL from environment or settings
@@ -343,6 +345,27 @@ async def health_check():
     # Get actual URL being used by SQLAlchemy engine
     actual_db_url = str(engine.url)
 
+    # Test query: Get invoice 2010783 MRR
+    test_invoice = None
+    try:
+        stmt = select(Invoice).where(Invoice.invoice_number == "2010783")
+        result = await session.execute(stmt)
+        invoice = result.scalar_one_or_none()
+
+        if invoice:
+            stmt = select(InvoiceLineItem).where(InvoiceLineItem.invoice_id == invoice.id)
+            result = await session.execute(stmt)
+            items = result.scalars().all()
+
+            test_invoice = {
+                "invoice_number": invoice.invoice_number,
+                "line_items": len(items),
+                "mrr_values": [float(item.mrr_per_month or 0) for item in items],
+                "total_mrr": sum(float(item.mrr_per_month or 0) for item in items)
+            }
+    except Exception as e:
+        test_invoice = {"error": str(e)}
+
     return {
         "status": "healthy",
         "database": {
@@ -351,6 +374,7 @@ async def health_check():
             "engine_url": actual_db_url[:80] + "..." if len(actual_db_url) > 80 else actual_db_url,
             "has_asyncpg": "+asyncpg" in actual_db_url,
         },
+        "test_invoice_2010783": test_invoice,
         "app_env": settings.app_env,
     }
 

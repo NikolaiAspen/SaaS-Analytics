@@ -401,11 +401,21 @@
                                 {{ "%.2f"|format(item.item_total) }} kr
                             </td>
                             <td class="number {% if item.mrr_per_month < 0 %}negative-amount{% else %}positive-amount{% endif %}">
+                                {{ "%.2f"|format(item.mrr_per_month) }} kr
+                            </td>
+                            <td class="number {% if item.related_creditnotes %}negative-amount{% endif %}">
                                 {% if item.related_creditnotes %}
-                                {# Show net MRR (invoice + credit notes) #}
+                                {% set total_cn_amount = item.related_creditnotes|sum(attribute='item_total') %}
+                                {{ "%.2f"|format(total_cn_amount) }} kr
+                                {% else %}
+                                --
+                                {% endif %}
+                            </td>
+                            <td class="number net-mrr">
+                                {% if item.related_creditnotes %}
                                 {% set total_cn_mrr = item.related_creditnotes|sum(attribute='mrr_per_month') %}
                                 {% set net_mrr = item.mrr_per_month + total_cn_mrr %}
-                                <span class="net-mrr {% if net_mrr < 0 %}negative-amount{% else %}positive-amount{% endif %}" title="Netto: {{ '%.2f'|format(item.mrr_per_month) }} + ({{ '%.2f'|format(total_cn_mrr) }}) = {{ '%.2f'|format(net_mrr) }}">
+                                <span class="{% if net_mrr < 0 %}negative-amount{% else %}positive-amount{% endif %}" title="Netto: {{ '%.2f'|format(item.mrr_per_month) }} + ({{ '%.2f'|format(total_cn_mrr) }}) = {{ '%.2f'|format(net_mrr) }}">
                                     {{ "%.2f"|format(net_mrr) }} kr
                                 </span>
                                 {% else %}
@@ -434,6 +444,8 @@
                                 <td class="number negative-amount">
                                     {{ "%.2f"|format(cn.mrr_per_month) }} kr
                                 </td>
+                                <td class="number">--</td>
+                                <td class="number">--</td>
                             </tr>
                             {% endfor %}
                         {% endif %}
