@@ -18,7 +18,7 @@ async def generate_comprehensive_report():
 
     # Target month for analysis
     target_month = datetime(2025, 10, 1)
-    target_month_end = datetime(2025, 10, 31)
+    target_month_end = datetime(2025, 10, 31, 23, 59, 59)  # Last second of month (snapshot approach)
     month_name = target_month.strftime("%B %Y")
 
     print("=" * 120)
@@ -103,12 +103,14 @@ async def generate_comprehensive_report():
 
         # ===== FETCH INVOICE DATA =====
         print(f"\n[2/5] Fetching invoice data for {month_name}...")
+        # Use snapshot approach: only include invoices active on LAST DAY of month
+        # This matches the snapshot calculation method (consistent with subscription MRR)
         inv_result = await session.execute(
             select(InvoiceLineItem, Invoice)
             .join(Invoice, InvoiceLineItem.invoice_id == Invoice.id)
             .where(
                 InvoiceLineItem.period_start_date <= target_month_end,
-                InvoiceLineItem.period_end_date >= target_month
+                InvoiceLineItem.period_end_date >= target_month_end  # Snapshot: active on month-end
             )
         )
         invoice_rows = inv_result.all()

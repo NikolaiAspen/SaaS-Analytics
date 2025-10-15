@@ -1,5 +1,25 @@
 # Endringslogg - SaaS Analytics
 
+## Versjon 2.3.1 - 15. oktober 2025
+
+### 🐛 Feilrettinger
+- **Gap analyse rapport snapshot-fix**: Fikset inkonsistent datofiltrering som gjorde at gap-analyse rapporten viste andre tall enn snapshots
+- **Månedslutt-tidspunkt**: Endret fra 00:00:00 til 23:59:59 for siste dag i måned (konsistent med snapshot-generering)
+- **Accurate gap-beregning**: Gap analyse matcher nå 100% med snapshot-data (3216 fakturalinjer, 1,943,274 NOK Invoice MRR)
+
+### 🔧 Tekniske Endringer
+- Gap analyse bruker nå "snapshot approach" (kun fakturaer aktive på siste dag av måned)
+- Konsistent datofiltrering på tvers av alle MRR-beregninger
+- Regenerert Oktober 2025 snapshot med oppdaterte data
+
+### 📊 Resultater
+- Subscription MRR: 2,061,316 NOK
+- Invoice MRR: 1,943,274 NOK
+- Gap: -118,042 NOK (-5.7%)
+- Snapshot og gap-rapport er nå konsistente
+
+---
+
 ## Versjon 2.3.0 - 15. oktober 2025
 
 ### 🎯 MRR Gap Analyse & Excel Rapport
