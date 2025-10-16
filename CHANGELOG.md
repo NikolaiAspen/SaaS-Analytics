@@ -1,5 +1,30 @@
 # Endringslogg - SaaS Analytics
 
+## Versjon 2.3.2 - 16. oktober 2025
+
+### ✨ Forbedringer
+- **Excel gap-rapport konsistens med AI**: Gap analyse Excel-rapporten inneholder nå SAMME detaljerte data som Niko AI har tilgang til
+- **4 nye Excel-ark med detaljert breakdown**:
+  - 🔗 **Kundenavn Mismatch**: Kunder hvor faktura er under et annet navn enn subscription (men subscription finnes via call sign/vessel)
+  - ❌ **Uten Subscription**: Kunder som faktisk mangler subscription (ingen match funnet)
+  - ⚠️ **Uten Faktura**: Kunder med subscription men ingen faktura i perioden
+  - 🔄 **Eierskifte**: Fartøy som har byttet eier i perioden
+- **Oppdatert sammendrag**: Summary-ark inkluderer nå detaljert gap breakdown med antall kunder i hver kategori
+- **SPESIFIKKE kundelister**: Alle ark viser nå konkrete kundenavn, MRR-beløp, fartøy og kallesignal - ikke bare statistikk
+
+### 🔧 Tekniske Endringer
+- Gap-rapport bruker nå `invoice_service.analyze_mrr_gap()` for samme logikk som AI-en
+- Konsistent gap-analyse på tvers av Excel og AI
+- Kreditterte fakturaer ekskluderes automatisk fra gap-analyse
+
+### 📊 Resultater (Oktober 2025)
+- 25 kunder med kundenavn-mismatch (subscription finnes via call sign)
+- 2 kunder faktisk uten subscription (med aktiv MRR)
+- 49 kunder med subscription men ingen faktura
+- 2 kunder med eierskifte
+
+---
+
 ## Versjon 2.3.1 - 15. oktober 2025
 
 ### 🐛 Feilrettinger

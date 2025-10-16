@@ -19,6 +19,7 @@ async def generate_comprehensive_report():
     # Target month for analysis
     target_month = datetime(2025, 10, 1)
     target_month_end = datetime(2025, 10, 31, 23, 59, 59)  # Last second of month (snapshot approach)
+    target_month_str = target_month.strftime("%Y-%m")
     month_name = target_month.strftime("%B %Y")
 
     print("=" * 120)
@@ -26,8 +27,19 @@ async def generate_comprehensive_report():
     print("=" * 120)
 
     async with AsyncSessionLocal() as session:
+        # Get detailed gap analysis from invoice service
+        from services.invoice import InvoiceService
+        invoice_service = InvoiceService(session)
+
+        print("\n[0/6] Running detailed gap analysis...")
+        gap_analysis = await invoice_service.analyze_mrr_gap(target_month_str)
+        print(f"  [OK] Gap analysis complete")
+        print(f"    - Customers with name mismatch: {gap_analysis['customers_with_name_mismatch']}")
+        print(f"    - Customers truly without subscriptions: {gap_analysis['customers_truly_without_subs']}")
+        print(f"    - Customers without invoices: {gap_analysis['customers_without_invoices']}")
+        print(f"    - Customers with ownership change: {gap_analysis['customers_with_ownership_change']}")
         # ===== FETCH SUBSCRIPTION DATA =====
-        print("\n[1/5] Fetching subscription data...")
+        print("\n[1/6] Fetching subscription data...")
         sub_result = await session.execute(
             select(Subscription).where(Subscription.status.in_(['live', 'non_renewing']))
         )
@@ -102,7 +114,7 @@ async def generate_comprehensive_report():
         print(f"  [OK] Total Subscription MRR: {total_sub_mrr:,.2f} NOK")
 
         # ===== FETCH INVOICE DATA =====
-        print(f"\n[2/5] Fetching invoice data for {month_name}...")
+        print(f"\n[2/6] Fetching invoice data for {month_name}...")
         # Use snapshot approach: only include invoices active on LAST DAY of month
         # This matches the snapshot calculation method (consistent with subscription MRR)
         inv_result = await session.execute(
@@ -160,7 +172,7 @@ async def generate_comprehensive_report():
         print(f"    - Negative (Kreditnotaer): {total_inv_negative:,.2f} NOK")
 
         # ===== MATCHING ANALYSIS =====
-        print("\n[3/5] Performing multi-tier matching...")
+        print("\n[3/6] Performing multi-tier matching...")
 
         matched_by_sub_id = set()
         matched_by_call_sign = set()
@@ -200,7 +212,7 @@ async def generate_comprehensive_report():
         print(f"    - By Vessel: {len(matched_by_vessel)}")
 
         # ===== CUSTOMER COMPARISON =====
-        print("\n[4/5] Comparing customers...")
+        print("\n[4/6] Comparing customers...")
 
         all_customers = set(sub_mrr_by_customer.keys()) | set(inv_mrr_by_customer.keys())
         customer_comparison = []
@@ -236,8 +248,74 @@ async def generate_comprehensive_report():
 
         print(f"  [OK] {len(all_customers)} unique customers analyzed")
 
+        # ===== PREPARE GAP ANALYSIS DATA =====
+        print("\n[5/6] Preparing gap analysis sheets...")
+
+        # Customers with name mismatch (subscription exists via call sign)
+        name_mismatch_data = []
+        for customer in gap_analysis['customers_with_name_mismatch_list']:
+            matches_str = ', '.join([f"{m['subscription_customer']} (via {m['type']}: {m['value']})"
+                                     for m in customer['matches'][:2]])
+            vessels_str = ', '.join(customer['vessels'][:3])
+            call_signs_str = ', '.join(customer['call_signs'][:3])
+
+            name_mismatch_data.append({
+                'Faktura Kundenavn': customer['customer_name'],
+                'MRR (fra faktura)': customer['mrr'],
+                'Fartøy': vessels_str,
+                'Kallesignal': call_signs_str,
+                'Subscription Kundenavn': matches_str,
+                'Match Type': ', '.join(set([m['type'] for m in customer['matches']]))
+            })
+
+        # Customers truly without subscriptions
+        without_sub_data = []
+        for customer in gap_analysis['customers_truly_without_subs_list']:
+            if customer['mrr'] > 0:  # Only include customers with active MRR
+                vessels_str = ', '.join(customer['vessels'][:3])
+                call_signs_str = ', '.join(customer['call_signs'][:3])
+
+                without_sub_data.append({
+                    'Kundenavn': customer['customer_name'],
+                    'MRR': customer['mrr'],
+                    'Fartøy': vessels_str,
+                    'Kallesignal': call_signs_str,
+                    'Status': 'Ingen subscription funnet'
+                })
+
+        # Customers with subscriptions but no invoices
+        without_invoice_data = []
+        for customer in gap_analysis['customers_without_invoices_list']:
+            without_invoice_data.append({
+                'Kundenavn': customer['customer_name'],
+                'MRR (fra subscription)': customer['mrr'],
+                'Plan': customer['plan_name'],
+                'Fartøy': customer['vessel_name'],
+                'Kallesignal': customer['call_sign'],
+                'Status': 'Mangler faktura i perioden'
+            })
+
+        # Customers with ownership changes
+        ownership_change_data = []
+        for customer in gap_analysis['customers_with_ownership_change_list']:
+            ownership_change_data.append({
+                'Ny Eier (Subscription)': customer['customer_name'],
+                'MRR (ny)': customer['mrr'],
+                'Plan': customer['plan_name'],
+                'Fartøy': customer['vessel_name'],
+                'Kallesignal': customer['call_sign'],
+                'Tidligere Eier (Faktura)': customer['previous_owner'],
+                'MRR (tidligere)': customer['previous_owner_mrr']
+            })
+
+        print(f"  [OK] Gap analysis sheets prepared")
+        print(f"    - Name mismatch: {len(name_mismatch_data)} customers")
+        print(f"    - Without subscription: {len(without_sub_data)} customers")
+        print(f"    - Without invoice: {len(without_invoice_data)} customers")
+        print(f"    - Ownership changes: {len(ownership_change_data)} customers")
+
         # ===== GENERATE EXCEL REPORT =====
-        print("\n[5/5] Generating Excel report...")
+        print("\n[6/6] Generating Excel report...")
 
         output_file = f"excel/MRR_Gap_Analysis_{target_month.strftime('%Y_%m')}.xlsx"
 
@@ -263,6 +341,19 @@ async def generate_comprehensive_report():
                     '  - Via Kallesignal',
                     '  - Via Fartøy + Kunde',
                     'Subscriptions ikke matchet',
+                    '',
+                    'GAP ANALYSE - Detaljert Breakdown:',
+                    '  Kunder med kundenavn-mismatch',
+                    '    (subscription finnes via call sign/vessel)',
+                    '  Kunder FAKTISK uten subscription',
+                    '    (ingen subscription funnet)',
+                    '  Kunder med subscription men uten faktura',
+                    '    (mangler faktura i perioden)',
+                    '  Eierskifte',
+                    '    (fartøy byttet eier)',
+                    '',
+                    'Matched gap MRR (name mismatch)',
+                    'Unmatched gap MRR (truly without)',
                 ],
                 'Value': [
                     f"{total_sub_mrr:,.2f} NOK",
@@ -283,6 +374,19 @@ async def generate_comprehensive_report():
                     len(matched_by_call_sign),
                     len(matched_by_vessel),
                     len(subscriptions) - len(all_matched),
+                    '',
+                    '',
+                    f"{len(name_mismatch_data)} kunder",
+                    '',
+                    f"{len(without_sub_data)} kunder",
+                    '',
+                    f"{len(without_invoice_data)} kunder",
+                    '',
+                    f"{len(ownership_change_data)} kunder",
+                    '',
+                    '',
+                    f"{gap_analysis['matched_gap_mrr']:,.2f} NOK",
+                    f"{gap_analysis['unmatched_gap_mrr']:,.2f} NOK",
                 ],
             }
             summary_df = pd.DataFrame(summary_data)
@@ -300,7 +404,27 @@ async def generate_comprehensive_report():
             invoice_df = pd.DataFrame(invoice_data)
             invoice_df.to_excel(writer, sheet_name='🧾 Fakturaer', index=False)
 
-            # Sheet 5: EXPLANATION
+            # Sheet 5: NAME MISMATCH (invoice under different name than subscription)
+            if name_mismatch_data:
+                name_mismatch_df = pd.DataFrame(name_mismatch_data)
+                name_mismatch_df.to_excel(writer, sheet_name='🔗 Kundenavn Mismatch', index=False)
+
+            # Sheet 6: WITHOUT SUBSCRIPTION (truly without any subscription)
+            if without_sub_data:
+                without_sub_df = pd.DataFrame(without_sub_data)
+                without_sub_df.to_excel(writer, sheet_name='❌ Uten Subscription', index=False)
+
+            # Sheet 7: WITHOUT INVOICE (subscription but no invoice in period)
+            if without_invoice_data:
+                without_invoice_df = pd.DataFrame(without_invoice_data)
+                without_invoice_df.to_excel(writer, sheet_name='⚠️ Uten Faktura', index=False)
+
+            # Sheet 8: OWNERSHIP CHANGES (subscription changed owner during period)
+            if ownership_change_data:
+                ownership_change_df = pd.DataFrame(ownership_change_data)
+                ownership_change_df.to_excel(writer, sheet_name='🔄 Eierskifte', index=False)
+
+            # Sheet 9: EXPLANATION
             explanation_data = {
                 'Spørsmål': [
                     'Hva er forskjellen mellom subscription-basert og faktura-basert MRR?',
