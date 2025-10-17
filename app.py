@@ -16,6 +16,8 @@ from apscheduler.triggers.cron import CronTrigger
 from config import settings
 from database import init_db, get_session
 from services import ZohoClient, MetricsCalculator, AnalysisService, ZohoReportImporter, InvoiceService, InvoiceSyncService
+from services.accounting import AccountingService
+from services.product_config import ProductConfigService
 from models.subscription import Subscription, MetricsSnapshot, SyncStatus, MonthlyMRRSnapshot
 from models.invoice import Invoice, InvoiceLineItem, InvoiceMRRSnapshot
 from auth import verify_credentials
@@ -1330,6 +1332,15 @@ class ImportRequest(BaseModel):
     month: Optional[str] = None  # Optional month override (YYYY-MM)
 
 
+class ProductConfigUpdate(BaseModel):
+    """Schema for updating product configuration"""
+    category: str
+    period_months: int
+    is_recurring: bool
+    notes: Optional[str] = None
+    recalculate: bool = False  # Whether to recalculate existing data
+
+
 @app.post("/api/import-zoho-mrr-details")
 async def import_zoho_mrr_details(
     request: ImportRequest,
@@ -1785,6 +1796,147 @@ async def upload_churn(
         raise HTTPException(status_code=500, detail=f"Churn upload failed: {str(e)}")
 
 
+@app.post("/api/accounting/import-receivables")
+async def import_receivables(
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Upload and import Receivable Details Excel file from accounting
+    """
+    import tempfile
+    import os
+    from import_accounting_receivables import import_accounting_excel
+
+    try:
+        # Save uploaded file to temp location
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_file_path = tmp_file.name
+
+        # Import the Receivable Details - pass original filename for month extraction
+        original_filename = file.filename
+
+        # Call the import function
+        result = await import_accounting_excel(tmp_file_path)
+
+        # Clean up temp file
+        os.unlink(tmp_file_path)
+
+        return {
+            "status": "success",
+            "message": f"Successfully imported receivable details",
+            "source_month": result.get("source_month"),
+            "items_imported": result.get("total_items", 0),
+            "total_mrr": result.get("total_mrr", 0),
+            "invoice_items": result.get("invoice_count", 0),
+            "creditnote_items": result.get("creditnote_count", 0),
+        }
+
+    except Exception as e:
+        # Clean up temp file if it exists
+        if 'tmp_file_path' in locals() and os.path.exists(tmp_file_path):
+            os.unlink(tmp_file_path)
+        import traceback
+        print(f"Receivable upload failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Receivable upload failed: {str(e)}")
+
+
+@app.get("/api/accounting/receivables-status")
+async def get_receivables_status(session: AsyncSession = Depends(get_session)):
+    """
+    Get receivable details import status for all months
+    """
+    try:
+        from sqlalchemy import select, func, text
+        from models.accounting import AccountingReceivableItem
+        from dateutil.relativedelta import relativedelta
+
+        # Get last 12 months
+        today = datetime.utcnow()
+        months = []
+        for i in range(12):
+            month_date = today - relativedelta(months=i)
+            month_str = month_date.strftime("%Y-%m")
+            months.append({
+                'month': month_str,
+                'month_name': month_date.strftime("%B %Y"),
+            })
+
+        # Get data for each month
+        result_months = []
+        for month_info in reversed(months):
+            month = month_info['month']
+
+            # Get statistics for this month using raw SQL for efficiency
+            sql = text("""
+                SELECT
+                    COUNT(*) as total_items,
+                    SUM(CASE WHEN transaction_type = 'invoice' THEN 1 ELSE 0 END) as invoice_items,
+                    SUM(CASE WHEN transaction_type = 'creditnote' THEN 1 ELSE 0 END) as creditnote_items,
+                    COALESCE(SUM(mrr_per_month), 0) as total_mrr,
+                    COALESCE(SUM(CASE WHEN transaction_type = 'invoice' THEN mrr_per_month ELSE 0 END), 0) as invoice_mrr,
+                    COALESCE(SUM(CASE WHEN transaction_type = 'creditnote' THEN mrr_per_month ELSE 0 END), 0) as creditnote_mrr,
+                    MAX(created_time) as updated_at
+                FROM accounting_receivable_items
+                WHERE source_month = :month
+            """)
+            result = await session.execute(sql, {'month': month})
+            row = result.fetchone()
+
+            total_items = row[0] if row and row[0] is not None else 0
+            invoice_items = row[1] if row and row[1] is not None else 0
+            creditnote_items = row[2] if row and row[2] is not None else 0
+            total_mrr = row[3] if row and row[3] is not None else 0.0
+            invoice_mrr = row[4] if row and row[4] is not None else 0.0
+            creditnote_mrr = row[5] if row and row[5] is not None else 0.0
+            updated_at_raw = row[6] if row and row[6] is not None else None
+
+            if total_items > 0:
+                # Format updated_at
+                try:
+                    if isinstance(updated_at_raw, str):
+                        updated_at_obj = datetime.fromisoformat(updated_at_raw.replace('Z', '+00:00'))
+                    else:
+                        updated_at_obj = updated_at_raw
+                    updated_at = updated_at_obj.strftime('%d.%m.%Y kl. %H:%M')
+                except:
+                    updated_at = "Ukjent"
+
+                result_months.append({
+                    'month': month,
+                    'month_name': month_info['month_name'],
+                    'total_items': total_items,
+                    'invoice_items': invoice_items,
+                    'creditnote_items': creditnote_items,
+                    'total_mrr': float(total_mrr),
+                    'invoice_mrr': float(invoice_mrr),
+                    'creditnote_mrr': float(creditnote_mrr),
+                    'updated_at': updated_at,
+                })
+            else:
+                # No data for this month
+                result_months.append({
+                    'month': month,
+                    'month_name': month_info['month_name'],
+                    'total_items': 0,
+                    'invoice_items': 0,
+                    'creditnote_items': 0,
+                    'total_mrr': 0.0,
+                    'invoice_mrr': 0.0,
+                    'creditnote_mrr': 0.0,
+                    'updated_at': None,
+                })
+
+        return {'months': result_months}
+
+    except Exception as e:
+        import traceback
+        print(f"Receivables status failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to get receivables status: {str(e)}")
+
+
 class QuestionRequest(BaseModel):
     question: str
 
@@ -1993,6 +2145,20 @@ async def ask_niko_comprehensive(
         except Exception as e:
             print(f"Could not load invoice data: {e}")
 
+        # Get accounting category breakdown (from accounting receivable data)
+        accounting_category_breakdown = None
+        try:
+            from services.accounting import AccountingService
+            from datetime import datetime
+
+            accounting_service = AccountingService(session)
+            # Use current month for category breakdown
+            current_month = datetime.utcnow().strftime("%Y-%m")
+            accounting_category_breakdown = await accounting_service.get_category_breakdown(current_month)
+            print(f"Loaded accounting category breakdown: {len(accounting_category_breakdown.get('categories', []))} categories, Total MRR: {accounting_category_breakdown.get('total_mrr', 0):,.0f} NOK")
+        except Exception as e:
+            print(f"Could not load accounting category breakdown: {e}")
+
         # Get churn details with subscription info
         churn_details = []
         try:
@@ -2128,13 +2294,14 @@ async def ask_niko_comprehensive(
         except Exception as e:
             print(f"Could not load gap analysis: {e}")
 
-        # Ask Niko with full context (inkluderer nå hele databasen + gap analyse)
+        # Ask Niko with full context (inkluderer nå hele databasen + gap analyse + accounting kategorier)
         answer = await analysis_service.ask_comprehensive(
             question=request.question,
             subscription_metrics=subscription_metrics,
             subscription_trends=subscription_trends,
             invoice_metrics=invoice_metrics,
             invoice_trends=invoice_trends,
+            accounting_category_breakdown=accounting_category_breakdown,
             churn_details=churn_details,
             new_customer_details=new_customer_details,
             all_subscriptions=all_subscriptions,
@@ -3714,6 +3881,502 @@ async def invoices_trends(request: Request, session: AsyncSession = Depends(get_
         raise HTTPException(status_code=500, detail=f"Invoice trends failed: {str(e)}")
 
 
+# ==========================================
+# ACCOUNTING ENDPOINTS
+# ==========================================
+
+@app.get("/api/accounting/dashboard", response_class=HTMLResponse)
+async def accounting_dashboard(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Accounting-based MRR dashboard (from Excel receivable details)
+    This uses accounting's actual Excel reports as the ultimate source of truth
+    """
+    try:
+        accounting_service = AccountingService(session)
+
+        # Get current month snapshot
+        current_month = datetime.utcnow().strftime("%Y-%m")
+
+        # Calculate current metrics
+        mrr = await accounting_service.get_mrr_for_month(current_month)
+        arr = mrr * 12
+        total_customers = await accounting_service.get_unique_customers_for_month(current_month)
+        arpu = mrr / total_customers if total_customers > 0 else 0
+
+        # Get MRR breakdown (invoice vs credit note)
+        breakdown = await accounting_service.get_mrr_breakdown_for_month(current_month)
+
+        metrics = {
+            "mrr": round(mrr, 2),
+            "arr": round(arr, 2),
+            "total_customers": total_customers,
+            "arpu": round(arpu, 2),
+            "invoice_mrr": breakdown['invoice_mrr'],
+            "creditnote_mrr": breakdown['creditnote_mrr'],
+            "total_invoiced": breakdown['total_invoiced'],
+            "total_credited": breakdown['total_credited'],
+            "snapshot_date": datetime.utcnow(),
+        }
+
+        return templates.TemplateResponse(
+            "accounting_dashboard.html",
+            {
+                "request": request,
+                "metrics": metrics,
+                "current_month": current_month,
+                "active_page": "accounting",
+            },
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Accounting dashboard failed: {str(e)}")
+
+
+@app.get("/api/accounting/trends", response_class=HTMLResponse)
+async def accounting_trends(request: Request, session: AsyncSession = Depends(get_session)):
+    """
+    Monthly trends view for accounting-based MRR
+    """
+    try:
+        accounting_service = AccountingService(session)
+        trends = await accounting_service.get_monthly_trends(months=21)  # Show all 21 months
+
+        return templates.TemplateResponse(
+            "accounting_trends.html",
+            {
+                "request": request,
+                "trends": trends,
+                "active_page": "accounting",
+            },
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Accounting trends failed: {str(e)}")
+
+
+@app.get("/api/accounting/month-drilldown", response_class=HTMLResponse)
+async def accounting_month_drilldown(
+    request: Request,
+    month: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Drilldown view for accounting receivable items in a specific month
+    Shows all items active on the last day of the specified month
+    """
+    try:
+        from models.accounting import AccountingReceivableItem
+        from sqlalchemy import select
+        from datetime import datetime
+        from dateutil.relativedelta import relativedelta
+
+        # Parse target month - use LAST DAY of month
+        year, month_num = map(int, month.split('-'))
+
+        # Calculate last day of month
+        if month_num == 12:
+            month_end = datetime(year + 1, 1, 1) - relativedelta(days=1)
+        else:
+            month_end = datetime(year, month_num + 1, 1) - relativedelta(days=1)
+
+        month_end = month_end.replace(hour=23, minute=59, second=59)
+        month_name = month_end.strftime("%B %Y")
+
+        # Get all items active on the last day of this month
+        stmt = select(AccountingReceivableItem).where(
+            AccountingReceivableItem.period_start_date <= month_end,
+            AccountingReceivableItem.period_end_date >= month_end
+        ).order_by(
+            AccountingReceivableItem.customer_name,
+            AccountingReceivableItem.transaction_type,
+            AccountingReceivableItem.item_name
+        )
+
+        result = await session.execute(stmt)
+        items = result.scalars().all()
+
+        # Add category info to each item
+        from services.accounting import AccountingService
+        items_with_category = []
+        total_mrr = 0
+        total_revenue = 0
+
+        for item in items:
+            category = AccountingService.categorize_item(item.item_name)
+            is_recurring = AccountingService.is_recurring_category(category)
+
+            items_with_category.append({
+                'item': item,
+                'category': category,
+                'is_recurring': is_recurring
+            })
+
+            if item.mrr_per_month:
+                total_revenue += item.mrr_per_month
+                if is_recurring:
+                    total_mrr += item.mrr_per_month
+
+        # Calculate totals
+        invoice_items = [i for i in items if i.transaction_type == 'invoice']
+        creditnote_items = [i for i in items if i.transaction_type == 'creditnote']
+
+        invoice_mrr = sum(i.mrr_per_month for i in invoice_items if i.mrr_per_month)
+        creditnote_mrr = sum(i.mrr_per_month for i in creditnote_items if i.mrr_per_month)
+
+        unique_customers = len(set(item.customer_name for item in items))
+
+        return templates.TemplateResponse(
+            "accounting_month_drilldown.html",
+            {
+                "request": request,
+                "month": month,
+                "month_name": month_name,
+                "snapshot_date": month_end,
+                "items": items_with_category,
+                "total_mrr": total_mrr,
+                "total_revenue": total_revenue,
+                "total_one_time": total_revenue - total_mrr,
+                "total_invoice_items": len(invoice_items),
+                "total_creditnote_items": len(creditnote_items),
+                "invoice_mrr": invoice_mrr,
+                "creditnote_mrr": creditnote_mrr,
+                "total_customers": unique_customers,
+                "active_page": "accounting",
+            },
+        )
+
+    except Exception as e:
+        import traceback
+        print(f"Accounting drilldown failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Accounting drilldown failed: {str(e)}")
+
+
+@app.get("/api/accounting/categories", response_class=HTMLResponse)
+async def accounting_categories(
+    request: Request,
+    month: str = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Category breakdown view for accounting revenue
+    Shows breakdown of revenue by category (MRR vs one-time)
+    """
+    try:
+        from services.accounting import AccountingService
+        from models.accounting import AccountingMRRSnapshot
+        from sqlalchemy import select
+
+        # Use current month if not specified
+        if not month:
+            month = datetime.utcnow().strftime("%Y-%m")
+
+        # Get category breakdown
+        accounting_service = AccountingService(session)
+        breakdown = await accounting_service.get_category_breakdown(month)
+
+        # Parse month for display
+        month_date = datetime.strptime(month, "%Y-%m")
+        month_name = month_date.strftime("%B %Y")
+
+        # Get available months from snapshots
+        result = await session.execute(
+            select(AccountingMRRSnapshot.month).distinct().order_by(AccountingMRRSnapshot.month.desc())
+        )
+        months = result.scalars().all()
+
+        # Format months for dropdown
+        available_months = []
+        for m in months:
+            try:
+                m_date = datetime.strptime(m, "%Y-%m")
+                available_months.append({
+                    "value": m,
+                    "label": m_date.strftime("%B %Y")
+                })
+            except:
+                pass
+
+        return templates.TemplateResponse(
+            "accounting_categories.html",
+            {
+                "request": request,
+                "month": month,
+                "month_name": month_name,
+                "categories": breakdown['categories'],
+                "total_mrr": breakdown['total_mrr'],
+                "total_revenue": breakdown['total_revenue'],
+                "total_one_time": breakdown['total_one_time'],
+                "available_months": available_months,
+                "active_page": "accounting",
+            },
+        )
+
+    except Exception as e:
+        import traceback
+        print(f"Accounting categories failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Accounting categories failed: {str(e)}")
+
+
+@app.get("/api/accounting/category-drilldown", response_class=HTMLResponse)
+async def accounting_category_drilldown(
+    request: Request,
+    month: str,
+    category: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Category drilldown - show all items for a specific category in a specific month
+    """
+    try:
+        from services.accounting import AccountingService
+
+        accounting_service = AccountingService(session)
+        data = await accounting_service.get_category_items(month, category)
+
+        # Parse month for display
+        month_date = datetime.strptime(month, "%Y-%m")
+        month_name = month_date.strftime("%B %Y")
+
+        return templates.TemplateResponse(
+            "category_drilldown.html",
+            {
+                "request": request,
+                "month": month,
+                "month_name": month_name,
+                "category": category,
+                "is_recurring": data['is_recurring'],
+                "items": data['items'],
+                "total_mrr": data['total_mrr'],
+                "item_count": data['item_count'],
+                "active_page": "accounting",
+            },
+        )
+
+    except Exception as e:
+        import traceback
+        print(f"Category drilldown failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to load category drilldown: {str(e)}")
+
+
+# ============================================================================
+# Product Configuration Endpoints
+# ============================================================================
+
+@app.get("/api/accounting/products")
+async def get_all_products(
+    session: AsyncSession = Depends(get_session),
+    _credentials = Depends(verify_credentials)
+):
+    """
+    Get all products with their configuration and usage stats
+
+    Returns:
+        List of products with:
+        - product_name
+        - total_items (count of invoice items)
+        - total_mrr (sum of MRR)
+        - avg_period_months (average periodization)
+        - has_config (whether manual config exists)
+        - config (manual configuration if exists)
+    """
+    try:
+        service = ProductConfigService(session)
+        products = await service.get_all_products()
+
+        return {
+            "success": True,
+            "products": products,
+            "total_products": len(products)
+        }
+    except Exception as e:
+        import traceback
+        print(f"Get all products failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to get products: {str(e)}")
+
+
+@app.get("/api/accounting/products/{product_name}")
+async def get_product_config(
+    product_name: str,
+    session: AsyncSession = Depends(get_session),
+    _credentials = Depends(verify_credentials)
+):
+    """Get configuration for a specific product"""
+    try:
+        service = ProductConfigService(session)
+        config = await service.get_config(product_name)
+
+        if not config:
+            return {
+                "success": True,
+                "has_config": False,
+                "product_name": product_name,
+                "config": None
+            }
+
+        return {
+            "success": True,
+            "has_config": True,
+            "product_name": product_name,
+            "config": {
+                "category": config.category,
+                "period_months": config.period_months,
+                "is_recurring": config.is_recurring,
+                "notes": config.notes,
+                "created_at": config.created_at.isoformat() if config.created_at else None,
+                "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+            }
+        }
+    except Exception as e:
+        import traceback
+        print(f"Get product config failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to get product config: {str(e)}")
+
+
+@app.put("/api/accounting/products/{product_name}")
+async def update_product_config(
+    product_name: str,
+    config_update: ProductConfigUpdate,
+    session: AsyncSession = Depends(get_session),
+    _credentials = Depends(verify_credentials)
+):
+    """
+    Create or update product configuration
+
+    Body:
+        - category: Category name (e.g., "Fangstdagbok", "VMS", "Hardware")
+        - period_months: Number of months for periodization
+        - is_recurring: Whether to include in MRR calculations
+        - notes: Optional admin notes
+        - recalculate: Whether to recalculate existing data and regenerate snapshots
+    """
+    try:
+        service = ProductConfigService(session)
+
+        # Save configuration
+        config = await service.upsert_config(
+            product_name=product_name,
+            category=config_update.category,
+            period_months=config_update.period_months,
+            is_recurring=config_update.is_recurring,
+            notes=config_update.notes
+        )
+
+        response = {
+            "success": True,
+            "message": "Product configuration updated successfully",
+            "product_name": product_name,
+            "config": {
+                "category": config.category,
+                "period_months": config.period_months,
+                "is_recurring": config.is_recurring,
+                "notes": config.notes,
+                "created_at": config.created_at.isoformat() if config.created_at else None,
+                "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+            }
+        }
+
+        # If recalculate requested, update existing data and regenerate snapshots
+        if config_update.recalculate:
+            print(f"[RECALCULATE] Starting recalculation for product: {product_name}")
+
+            # Recalculate existing AccountingReceivableItem records
+            recalc_result = await service.recalculate_product_data(
+                product_name=product_name,
+                new_period_months=config_update.period_months
+            )
+
+            items_updated = recalc_result['items_updated']
+            affected_months = recalc_result['affected_months']
+
+            print(f"[RECALCULATE] Updated {items_updated} items")
+            print(f"[RECALCULATE] Affected months: {affected_months}")
+
+            # Regenerate snapshots for affected months
+            from services.accounting import AccountingService
+            snapshots_regenerated = []
+
+            if affected_months:
+                accounting_service = AccountingService(session)
+                for month in affected_months:
+                    try:
+                        snapshot = await accounting_service.generate_monthly_snapshot(month)
+                        snapshots_regenerated.append(month)
+                        print(f"[RECALCULATE] Regenerated snapshot for {month}: MRR = {snapshot.mrr:,.2f} NOK")
+                    except Exception as e:
+                        print(f"[RECALCULATE] Failed to regenerate snapshot for {month}: {e}")
+
+            response["recalculation"] = {
+                "items_updated": items_updated,
+                "snapshots_regenerated": snapshots_regenerated
+            }
+            response["message"] = f"Configuration updated and {items_updated} existing items recalculated. {len(snapshots_regenerated)} monthly snapshots regenerated."
+        else:
+            response["warning"] = "Configuration saved. To update existing data, check 'Recalculate existing data' when saving."
+
+        return response
+
+    except Exception as e:
+        import traceback
+        print(f"Update product config failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to update product config: {str(e)}")
+
+
+@app.delete("/api/accounting/products/{product_name}")
+async def delete_product_config(
+    product_name: str,
+    session: AsyncSession = Depends(get_session),
+    _credentials = Depends(verify_credentials)
+):
+    """Delete product configuration (revert to automatic rules)"""
+    try:
+        service = ProductConfigService(session)
+        deleted = await service.delete_config(product_name)
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"No configuration found for product: {product_name}")
+
+        return {
+            "success": True,
+            "message": f"Product configuration deleted. Product '{product_name}' will now use automatic rules.",
+            "product_name": product_name,
+            "warning": "You need to re-import accounting data and regenerate snapshots for changes to take effect"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Delete product config failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete product config: {str(e)}")
+
+
+@app.get("/api/accounting/products-admin", response_class=HTMLResponse)
+async def products_admin_page(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    _credentials = Depends(verify_credentials)
+):
+    """Product administration page - view and edit product configurations"""
+    try:
+        service = ProductConfigService(session)
+        products = await service.get_all_products()
+
+        return templates.TemplateResponse(
+            "products_admin.html",
+            {
+                "request": request,
+                "products": products,
+                "active_page": "accounting",
+            },
+        )
+    except Exception as e:
+        import traceback
+        print(f"Products admin page failed: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to load products admin: {str(e)}")
+
+
 @app.get("/api/gap-analysis/export")
 async def export_gap_analysis(
     month: str = None,
@@ -3830,20 +4493,34 @@ async def invoices_month_drilldown(
         unmatched_creditnotes = []
         for cn in creditnotes_list:
             # Try to match credit note to invoice by:
-            # 1. Same customer
+            # 1. MUST match: Same customer AND same vessel/call_sign (if available)
             # 2. Same product name
             # 3. Same or overlapping period_end_date
             matched = False
             key = (cn['customer_name'], cn['item_name'], cn['period_end'])
 
             if key in invoices_dict:
-                # Exact match found!
-                invoices_dict[key]['related_creditnotes'].append(cn)
-                matched = True
-            else:
-                # Try fuzzy matching: same customer + product, similar period
+                # Exact match found - but verify customer and vessel match!
+                inv = invoices_dict[key]
+                if (inv['customer_name'] == cn['customer_name'] and
+                    (not cn['call_sign'] or not inv['call_sign'] or inv['call_sign'] == cn['call_sign'])):
+                    inv['related_creditnotes'].append(cn)
+                    matched = True
+
+            if not matched:
+                # Try fuzzy matching: same customer + vessel + product, similar period
                 for inv_key, inv_data in invoices_dict.items():
-                    if (inv_data['customer_name'] == cn['customer_name'] and
+                    # CRITICAL: Must match customer AND (vessel OR call_sign if available)
+                    customer_match = inv_data['customer_name'] == cn['customer_name']
+
+                    # Check vessel/call_sign match (if both have data)
+                    vessel_match = True
+                    if cn['call_sign'] and inv_data['call_sign']:
+                        vessel_match = inv_data['call_sign'] == cn['call_sign']
+                    elif cn['vessel_name'] and inv_data['vessel_name']:
+                        vessel_match = inv_data['vessel_name'] == cn['vessel_name']
+
+                    if (customer_match and vessel_match and
                         inv_data['item_name'] == cn['item_name'] and
                         inv_data['period_end'] and cn['period_end'] and
                         abs((inv_data['period_end'] - cn['period_end']).days) <= 5):  # Within 5 days

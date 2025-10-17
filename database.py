@@ -3,7 +3,7 @@ from sqlalchemy.pool import NullPool
 from models.subscription import Base
 from config import settings
 # Import all models to register them with Base.metadata
-from models import User, AppVersion, EmailLog
+from models import User, AppVersion, EmailLog, ProductConfiguration
 # Force reload for churned_customers column
 
 

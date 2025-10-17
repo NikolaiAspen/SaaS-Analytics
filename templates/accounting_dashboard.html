@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="no" style="background: #0b1020;">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accounting MRR Dashboard</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        {% include 'sidebar_styles.html' %}
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            margin-left: 240px;
+            padding: 20px;
+        }
+
+        header {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            margin: 0;
+        }
+
+        .ver {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            color: var(--ink);
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .kpi {
+            padding: 16px;
+            border-radius: 14px;
+            background: #0f1530;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            transition: all 0.2s;
+        }
+
+        .kpi:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+            transform: translateY(-2px);
+        }
+
+        .kpi h3 {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: var(--muted);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .kpi .val {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .good .val {
+            color: var(--good);
+        }
+
+        .bad .val {
+            color: var(--bad);
+        }
+
+        .warn .val {
+            color: var(--warn);
+        }
+
+        .kpi .subtext {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        .info-note {
+            background: rgba(61, 220, 151, 0.15);
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            color: var(--muted);
+            font-size: 14px;
+            border-left: 3px solid var(--good);
+        }
+
+        button, a.button {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: #0f1530;
+            color: var(--ink);
+            padding: 12px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+
+        button:hover, a.button:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(15, 21, 48, 0.9);
+            transform: translateY(-1px);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: transparent;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #65398d 100%);
+            border-color: transparent;
+        }
+
+        @media (max-width: 768px) {
+            .kpi-grid {
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    {% set active_page = 'accounting' %}
+    {% include 'sidebar.html' %}
+
+    <div class="container">
+        <header>
+            <div>
+                <h1>📊 Accounting MRR Dashboard <span style="background: var(--good); color: #0b1020; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-left: 10px;">OFFISIELL</span></h1>
+                <span class="ver">Oppdatert: {{ metrics.snapshot_date.strftime('%d.%m.%Y %H:%M') }}</span>
+            </div>
+        </header>
+
+        <div class="info-note">
+            <strong>✅ Accounting's offisielle MRR:</strong> Dette dashboardet bruker accounting's "Receivable Details" Excel-rapporter som det ultimate sannhetsgrunnlaget for MRR. Data importeres direkte fra Excel-filer og beregnes med samme logikk som accounting bruker.
+        </div>
+
+        <div class="card">
+            <h2>📊 Fakturaer sendt i måneden</h2>
+            <p style="color: var(--muted); margin-bottom: 16px; font-size: 14px;">
+                Dette er faktiske fakturabeløp sendt til kunder denne måneden (inkl. MVA).
+            </p>
+            <div class="kpi-grid">
+                <div class="kpi good">
+                    <h3>Total Fakturert</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.total_invoiced) }} kr</div>
+                    <div class="subtext">Fakturaer sendt (inkl MVA)</div>
+                </div>
+
+                <div class="kpi bad">
+                    <h3>Total Kreditert</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.total_credited) }} kr</div>
+                    <div class="subtext">Kreditnotaer (inkl MVA)</div>
+                </div>
+
+                <div class="kpi">
+                    <h3>Netto Fakturert</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.total_invoiced + metrics.total_credited) }} kr</div>
+                    <div class="subtext">Fakturaer - Kreditnotaer</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📈 MRR (Monthly Recurring Revenue)</h2>
+            <p style="color: var(--muted); margin-bottom: 16px; font-size: 14px;">
+                Periodisert månedlig inntekt. Årlige abonnementer deles på 12 måneder.
+            </p>
+            <div class="kpi-grid">
+                <div class="kpi">
+                    <h3>MRR</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.mrr) }} kr</div>
+                    <div class="subtext">Recurring revenue</div>
+                </div>
+
+                <div class="kpi good">
+                    <h3>Fakturert MRR</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.invoice_mrr) }} kr</div>
+                    <div class="subtext">Fra fakturaer (periodisert)</div>
+                </div>
+
+                <div class="kpi bad">
+                    <h3>Kreditert MRR</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.creditnote_mrr) }} kr</div>
+                    <div class="subtext">Fra kreditnotaer (periodisert)</div>
+                </div>
+
+                <div class="kpi">
+                    <h3>ARR</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.arr) }} kr</div>
+                    <div class="subtext">Årlig inntekt</div>
+                </div>
+
+                <div class="kpi good">
+                    <h3>ARPU</h3>
+                    <div class="val">{{ "{:,.0f}".format(metrics.arpu) }} kr</div>
+                    <div class="subtext">Per kunde</div>
+                </div>
+
+                <div class="kpi">
+                    <h3>Kunder</h3>
+                    <div class="val">{{ metrics.total_customers }}</div>
+                    <div class="subtext">Aktive</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📋 Om Accounting MRR</h2>
+            <p style="color: var(--muted); line-height: 1.7; margin-bottom: 12px;">
+                Dette dashboardet viser MRR beregnet direkte fra accounting's "Receivable Details" Excel-rapporter fra Zoho:
+            </p>
+
+            <ul style="color: var(--muted); margin-left: 20px; line-height: 1.8; margin-bottom: 16px;">
+                <li><strong>Datakilde:</strong> Excel-filer eksportert månedlig fra Zoho Billing</li>
+                <li><strong>Periodelogikk:</strong> Bruker period_start_date og period_end_date fra fakturaer</li>
+                <li><strong>MRR-beregning:</strong> (bcy_total_with_tax ÷ 1.25) ÷ period_months</li>
+                <li><strong>VAT-håndtering:</strong> 25% MVA fjernes automatisk fra alle beløp</li>
+                <li><strong>Kreditnotaer:</strong> Behandles med negativt fortegn</li>
+                <li><strong>Snapshot-metode:</strong> MRR beregnes per siste dag i måneden</li>
+            </ul>
+
+            <div style="background: rgba(61, 220, 151, 0.1); padding: 12px 16px; border-radius: 10px; margin-top: 16px; border-left: 3px solid var(--good);">
+                <strong style="color: var(--good);">✓ Dette er det offisielle MRR-grunnlaget</strong>
+                <p style="color: var(--muted); margin-top: 8px; line-height: 1.6;">
+                    Data i dette dashboardet matcher akkurat det accounting ser i sine rapporter. Dette er "source of truth" for MRR-rapportering.
+                </p>
+            </div>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <a href="/api/accounting/trends" class="button btn-primary">📈 Se månedlige trender →</a>
+        </div>
+    </div>
+</body>
+</html>

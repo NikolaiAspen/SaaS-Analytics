@@ -80,6 +80,7 @@ class AnalysisService:
         subscription_trends: list = None,
         invoice_metrics: Dict = None,
         invoice_trends: list = None,
+        accounting_category_breakdown: Dict = None,
         churn_details: list = None,
         new_customer_details: list = None,
         all_subscriptions: list = None,
@@ -96,6 +97,7 @@ class AnalysisService:
             subscription_trends: Subscription trends data (12 months)
             invoice_metrics: Invoice-based metrics
             invoice_trends: Invoice trends data (12 months)
+            accounting_category_breakdown: Revenue breakdown by category (from accounting receivables)
             churn_details: Detailed churn information with reasons
             new_customer_details: New customers details (12 months)
             all_subscriptions: Complete list of all active subscriptions
@@ -166,6 +168,25 @@ class AnalysisService:
                     context += f" ({trend.get('mrr_change', 0):+,.0f} kr, {trend.get('mrr_change_pct', 0):+.1f}%)"
                 context += f", {trend.get('customers', 0)} kunder\n"
             context += "\n"
+
+        # Accounting category breakdown (fra regnskapets fordringer)
+        if accounting_category_breakdown:
+            context += "## Accounting Kategori-oversikt (Inntekt per kategori fra Regnskapsdata)\n"
+            context += "**VIKTIG:** Dette viser revenue fordeling per kategori basert på faktiske regnskapsposter (accounting receivables).\n"
+            context += "Kategorier er basert på parameters.xlsx fra regnskapet.\n\n"
+
+            context += f"**Totaloversikt ({accounting_category_breakdown.get('month', 'N/A')}):**\n"
+            context += f"- Total MRR (recurring): {accounting_category_breakdown.get('total_mrr', 0):,.0f} kr\n"
+            context += f"- Total engangs inntekt: {accounting_category_breakdown.get('total_one_time', 0):,.0f} kr\n"
+            context += f"- Total inntekt: {accounting_category_breakdown.get('total_revenue', 0):,.0f} kr\n\n"
+
+            categories = accounting_category_breakdown.get('categories', [])
+            if categories:
+                context += "**Inntekt per kategori:**\n"
+                for cat in categories:
+                    cat_type = "RECURRING" if cat.get('is_recurring') else "ENGANGS"
+                    context += f"- **{cat.get('category')}** ({cat_type}): {cat.get('mrr', 0):,.0f} kr ({cat.get('count', 0)} items)\n"
+                context += "\n"
 
         # Churn details (ALLE churned kunder med datoer og årsaker)
         if churn_details and len(churn_details) > 0:
@@ -407,7 +428,18 @@ class AnalysisService:
             "- Du har oversikt over ALLE kunder sortert etter MRR\n"
             "- Du kan utføre komplekse analyser på tvers av kunder, planer, perioder og segmenter\n"
             "- Du kan analysere trender, sammenligne perioder, identifisere mønstre og anomalier\n"
-            "- Du kan sammenligne subscription-basert og faktura-basert MRR\n\n"
+            "- Du kan sammenligne subscription-basert og faktura-basert MRR\n"
+            "- Du har tilgang til accounting kategori-oversikt med revenue fordeling per kategori\n\n"
+            "**ACCOUNTING KATEGORI-OVERSIKT:**\n"
+            "- Du har tilgang til detaljert kategori-oversikt fra regnskapsdata (accounting receivables)\n"
+            "- Dette viser hvordan revenue fordeler seg mellom forskjellige produkt-kategorier\n"
+            "- Kategorier:\n"
+            "  * **RECURRING** (MRR): Fangstdagbok, Support, VMS, Sporingstrafikk\n"
+            "  * **ENGANGS** (one-time): Hardware, Hardware mva korr, Renter og Gebyr Inkasso, Andre inntekter\n"
+            "- Kategoriene er basert på parameters.xlsx fra regnskapet (offisiell kategorisering)\n"
+            "- Når brukeren spør om 'hvilke kategorier', 'fordeling', 'hvor mye fra X' → bruk accounting kategori-data\n"
+            "- Du kan se MRR per kategori og antall items per kategori\n"
+            "- Dette hjelper med å forstå hvilke produkter som driver revenue\n\n"
             "**MRR GAP ANALYSE - KRITISK INSTRUKS:**\n"
             "- Du har tilgang til detaljert gap analyse med matching-status mellom subscription og faktura MRR\n"
             "- Gap analyse har TRE kategorier:\n"

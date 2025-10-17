@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="no" style="background: #0b1020;">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accounting MRR Trender</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            min-height: 100vh;
+        }
+
+        {% include 'sidebar_styles.html' %}
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto 0 240px;
+            padding: 20px;
+        }
+
+        header {
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        h1 { font-size: 28px; color: var(--ink); }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 { font-size: 20px; margin-bottom: 16px; }
+
+        table {
+            width: 100%;
+            min-width: 1400px;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th, td {
+            padding: 10px 8px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            white-space: nowrap;
+        }
+
+        th {
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            position: sticky;
+            top: 0;
+            background: var(--panel);
+            z-index: 10;
+        }
+
+        td { color: var(--ink); }
+        tr:hover { background: rgba(255, 255, 255, 0.02); }
+
+        .positive { color: var(--good); }
+        .negative { color: var(--bad); }
+        .neutral { color: var(--muted); }
+        .number { text-align: right; font-variant-numeric: tabular-nums; }
+
+        .info-note {
+            background: rgba(61, 220, 151, 0.15);
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            color: var(--muted);
+            font-size: 14px;
+            border-left: 3px solid var(--good);
+        }
+
+        .month-link {
+            color: var(--ink);
+            text-decoration: none;
+            border-bottom: 1px dotted rgba(255, 255, 255, 0.3);
+            transition: all 0.2s;
+        }
+
+        .month-link:hover {
+            color: var(--good);
+            border-bottom-color: var(--good);
+        }
+
+        .export-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: rgba(61, 220, 151, 0.15);
+            color: var(--good);
+            border: 1px solid rgba(61, 220, 151, 0.3);
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .export-btn:hover {
+            background: rgba(61, 220, 151, 0.25);
+            border-color: var(--good);
+            transform: translateY(-1px);
+        }
+    </style>
+</head>
+<body>
+    {% set active_page = 'accounting' %}
+    {% include 'sidebar.html' %}
+
+    <div class="container">
+        <header style="display: flex; justify-content: space-between; align-items: center;">
+            <h1>📊 Accounting MRR Trender</h1>
+            <a href="/api/gap-analysis/export" class="export-btn">
+                📥 Last ned Gap Analyse Excel
+            </a>
+        </header>
+
+        <div class="info-note">
+            <strong>✅ Offisielle MRR-tall:</strong> Disse dataene er hentet direkte fra accounting's "Receivable Details" Excel-rapporter. Dette er sannhetsgrunnlaget for MRR-rapportering.
+        </div>
+
+        <div class="card">
+            <h2>📈 MRR Månedlig Trend</h2>
+            <div style="height: 400px; position: relative;">
+                <canvas id="mrrChart"></canvas>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>MRR og Kundevekst (alle måneder)</h2>
+            <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Måned</th>
+                            <th class="number">MRR</th>
+                            <th class="number">MRR Endring</th>
+                            <th class="number">MRR %</th>
+                            <th class="number">ARR</th>
+                            <th class="number">Kunder</th>
+                            <th class="number">Kunde Endring</th>
+                            <th class="number">ARPU</th>
+                            <th class="number">Faktura Items</th>
+                            <th class="number">Faktura MRR</th>
+                            <th class="number">Kreditnota Items</th>
+                            <th class="number">Kreditnota MRR</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for trend in trends %}
+                        <tr>
+                            <td><a href="/api/accounting/month-drilldown?month={{ trend.month }}" class="month-link">{{ trend.month_name }}</a></td>
+                            <td class="number">{{ "{:,.2f}".format(trend.mrr) }} kr</td>
+                            <td class="number {% if trend.mrr_change > 0 %}positive{% elif trend.mrr_change < 0 %}negative{% else %}neutral{% endif %}">
+                                {% if trend.mrr_change > 0 %}+{% endif %}{{ "{:,.2f}".format(trend.mrr_change) }} kr
+                            </td>
+                            <td class="number {% if trend.mrr_change_pct > 0 %}positive{% elif trend.mrr_change_pct < 0 %}negative{% else %}neutral{% endif %}">
+                                {% if trend.mrr_change_pct > 0 %}+{% endif %}{{ "{:,.2f}".format(trend.mrr_change_pct) }}%
+                            </td>
+                            <td class="number">{{ "{:,.2f}".format(trend.arr) }} kr</td>
+                            <td class="number">{{ trend.customers }}</td>
+                            <td class="number {% if trend.customer_change > 0 %}positive{% elif trend.customer_change < 0 %}negative{% else %}neutral{% endif %}">
+                                {% if trend.customer_change > 0 %}+{% endif %}{{ trend.customer_change }}
+                            </td>
+                            <td class="number">{{ "{:,.2f}".format(trend.arpu) }} kr</td>
+                            <td class="number">{{ trend.invoice_items }}</td>
+                            <td class="number positive">{{ "{:,.2f}".format(trend.invoice_mrr) }} kr</td>
+                            <td class="number" style="color: var(--bad);">{{ trend.creditnote_items }}</td>
+                            <td class="number negative">{{ "{:,.2f}".format(trend.creditnote_mrr) }} kr</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const trends = {{ trends | tojson | safe }};
+
+        const ctx = document.getElementById('mrrChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: trends.map(t => t.month_name),
+                datasets: [{
+                    label: 'MRR (kr)',
+                    data: trends.map(t => t.mrr),
+                    borderColor: '#3ddc97',
+                    backgroundColor: 'rgba(61, 220, 151, 0.1)',
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: '#3ddc97',
+                    pointBorderColor: '#0b1020',
+                    pointBorderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(18, 25, 51, 0.95)',
+                        titleColor: '#9fb1ff',
+                        bodyColor: '#e8ecff',
+                        borderColor: 'rgba(255, 255, 255, 0.12)',
+                        borderWidth: 1,
+                        padding: 12,
+                        displayColors: false,
+                        callbacks: {
+                            label: (ctx) => 'MRR: ' + ctx.parsed.y.toLocaleString('no-NO', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0
+                            }) + ' kr'
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        ticks: {
+                            color: '#9fb1ff',
+                            callback: (value) => value.toLocaleString('no-NO') + ' kr'
+                        },
+                        grid: { color: 'rgba(255, 255, 255, 0.06)', drawBorder: false }
+                    },
+                    x: {
+                        ticks: { color: '#9fb1ff', maxRotation: 45, minRotation: 45 },
+                        grid: { color: 'rgba(255, 255, 255, 0.06)', drawBorder: false }
+                    }
+                },
+                interaction: { intersect: false, mode: 'index' }
+            }
+        });
+    </script>
+</body>
+</html>

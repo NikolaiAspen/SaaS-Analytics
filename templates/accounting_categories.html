@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="no" style="background: #0b1020;">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accounting Kategori-oversikt</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            min-height: 100vh;
+        }
+
+        {% include 'sidebar_styles.html' %}
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto 0 240px;
+            padding: 20px;
+        }
+
+        header {
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .badge {
+            background: var(--good);
+            color: #0b1020;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .back-link {
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .back-link:hover {
+            color: var(--ink);
+            border-color: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .kpi {
+            padding: 20px;
+            border-radius: 14px;
+            background: rgba(18, 25, 51, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .kpi h3 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            color: var(--muted);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .kpi .val {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .kpi .subtext {
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 6px;
+        }
+
+        .kpi.good .val { color: var(--good); }
+        .kpi.warn .val { color: var(--warn); }
+
+        .info-note {
+            background: rgba(61, 220, 151, 0.15);
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            color: var(--muted);
+            font-size: 14px;
+            border-left: 3px solid var(--good);
+        }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+        }
+
+        .category-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            margin-bottom: 8px;
+            background: rgba(15, 21, 48, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            transition: all 0.2s;
+        }
+
+        .category-item:hover {
+            background: rgba(15, 21, 48, 0.8);
+            border-color: rgba(255, 255, 255, 0.12);
+            transform: translateY(-1px);
+            cursor: pointer;
+        }
+
+        .category-link {
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .category-item.mrr {
+            border-left: 3px solid var(--good);
+        }
+
+        .category-item.one-time {
+            border-left: 3px solid var(--warn);
+        }
+
+        .category-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .category-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .category-info h3 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .category-info .tag {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .tag.mrr {
+            background: rgba(61, 220, 151, 0.2);
+            color: var(--good);
+        }
+
+        .tag.one-time {
+            background: rgba(255, 209, 102, 0.2);
+            color: var(--warn);
+        }
+
+        .category-right {
+            text-align: right;
+        }
+
+        .category-amount {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .category-count {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        .month-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .month-selector label {
+            font-size: 13px;
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        .month-selector select {
+            background: rgba(15, 21, 48, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: var(--ink);
+            padding: 8px 36px 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239fb1ff' d='M10.293 3.293L6 7.586 1.707 3.293A1 1 0 00.293 4.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+        }
+
+        .month-selector select:hover {
+            border-color: rgba(255, 255, 255, 0.24);
+            background: rgba(15, 21, 48, 1);
+        }
+
+        .month-selector select:focus {
+            outline: none;
+            border-color: var(--good);
+        }
+    </style>
+</head>
+<body>
+    {% set active_page = 'accounting' %}
+    {% include 'sidebar.html' %}
+
+    <div class="container">
+        <header>
+            <div style="flex: 1;">
+                <h1>
+                    📊 Kategori-oversikt: {{ month_name }}
+                    <span class="badge">OFFISIELL</span>
+                </h1>
+                <div style="color: var(--muted); font-size: 14px; margin-top: 8px;">
+                    Inntekt per kategori (MRR vs Engangs)
+                </div>
+            </div>
+            <div style="display: flex; gap: 12px; align-items: center;">
+                <div class="month-selector">
+                    <label for="month-select">📅 Måned:</label>
+                    <select id="month-select" onchange="window.location.href='/api/accounting/categories?month=' + this.value">
+                        {% for m in available_months %}
+                        <option value="{{ m.value }}" {% if m.value == month %}selected{% endif %}>
+                            {{ m.label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <a href="/api/accounting/trends" class="back-link">
+                    ← Tilbake
+                </a>
+            </div>
+        </header>
+
+        <div class="info-note">
+            <strong>💡 Kategorisering:</strong> Inntekter er kategorisert basert på produkttype. <strong>MRR</strong> = recurring revenue (abonnementer), <strong>Engangs</strong> = hardware, oppgraderinger, og andre engangskostnader.
+        </div>
+
+        <div class="kpi-grid">
+            <div class="kpi good">
+                <h3>Total MRR</h3>
+                <div class="val">{{ "{:,.0f}".format(total_mrr) }} kr</div>
+                <div class="subtext">Recurring revenue</div>
+            </div>
+
+            <div class="kpi warn">
+                <h3>Engangs inntekt</h3>
+                <div class="val">{{ "{:,.0f}".format(total_one_time) }} kr</div>
+                <div class="subtext">Hardware, oppgraderinger</div>
+            </div>
+
+            <div class="kpi">
+                <h3>Total inntekt</h3>
+                <div class="val">{{ "{:,.0f}".format(total_revenue) }} kr</div>
+                <div class="subtext">MRR + Engangs</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Inntekt per kategori</h2>
+
+            {% for cat in categories %}
+            <a href="/api/accounting/category-drilldown?month={{ month }}&category={{ cat.category|urlencode }}" class="category-link">
+                <div class="category-item {% if cat.is_recurring %}mrr{% else %}one-time{% endif %}">
+                    <div class="category-left">
+                        <div class="category-icon">
+                            {% if cat.category == 'Fangstdagbok' %}
+                                📖
+                            {% elif cat.category == 'Support' %}
+                                🛠️
+                            {% elif cat.category == 'VMS' %}
+                                🗺️
+                            {% elif cat.category == 'Hardware' or cat.category == 'Hardware, mva korr' %}
+                                🔌
+                            {% elif cat.category == 'Sporingstrafikk' %}
+                                📡
+                            {% elif cat.category == 'Renter og Gebyr Inkasso' %}
+                                💰
+                            {% elif cat.category == 'Annet utland uten mva' %}
+                                🌍
+                            {% elif cat.category == 'Andre inntekter' %}
+                                📦
+                            {% else %}
+                                ❓
+                            {% endif %}
+                        </div>
+                        <div class="category-info">
+                            <h3>{{ cat.category }}</h3>
+                            <span class="tag {% if cat.is_recurring %}mrr{% else %}one-time{% endif %}">
+                                {% if cat.is_recurring %}RECURRING{% else %}ENGANGS{% endif %}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="category-right">
+                        <div class="category-amount">{{ "{:,.0f}".format(cat.mrr) }} kr</div>
+                        <div class="category-count">{{ cat.count }} items 🔍</div>
+                    </div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 12px;">
+            <a href="/api/accounting/dashboard" class="back-link">📊 Dashboard</a>
+            <a href="/api/accounting/month-drilldown?month={{ month }}" class="back-link">🔍 Se alle items</a>
+        </div>
+    </div>
+</body>
+</html>

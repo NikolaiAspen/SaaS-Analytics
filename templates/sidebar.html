@@ -29,6 +29,22 @@
 
         <div class="nav-divider"></div>
 
+        <div class="nav-section-title">ACCOUNTING <span style="background: var(--good); color: #0b1020; padding: 2px 6px; border-radius: 4px; font-size: 9px; margin-left: 4px;">OFFISIELL</span></div>
+        <a href="/api/accounting/dashboard" class="nav-link {% if active_page == 'accounting' %}active{% endif %}">
+            <span class="nav-link-icon">📊</span>
+            <span>Accounting Dashboard</span>
+        </a>
+        <a href="/api/accounting/trends" class="nav-link {% if active_page == 'accounting' %}active{% endif %}">
+            <span class="nav-link-icon">📈</span>
+            <span>Accounting Trender</span>
+        </a>
+        <a href="/api/accounting/categories" class="nav-link {% if active_page == 'accounting' %}active{% endif %}">
+            <span class="nav-link-icon">📂</span>
+            <span>Kategori-oversikt</span>
+        </a>
+
+        <div class="nav-divider"></div>
+
         <div class="nav-section">
             <div class="nav-section-title">ANALYSE</div>
             <a href="/api/drilldown/mrr" class="nav-link {% if active_page == 'drilldown_mrr' %}active{% endif %}">

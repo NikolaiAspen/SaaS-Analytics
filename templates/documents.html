@@ -246,6 +246,24 @@
         </div>
 
         <div class="card">
+            <h2>📊 Importer Receivable Details</h2>
+            <p style="color: var(--muted); margin-bottom: 16px; font-size: 14px;">
+                Last opp "Receivable Details" Excel-rapport fra accounting for å importere fakturaer og kreditnotaer.
+            </p>
+            <form id="uploadReceivableForm" style="margin-bottom: 20px;">
+                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                    <input type="file" id="receivableFile" accept=".xlsx,.xls" multiple
+                           style="flex: 1; padding: 12px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); background: #0f1530; color: var(--ink); font-size: 14px; cursor: pointer;" />
+                    <button type="submit" class="button primary" style="margin: 0;">
+                        📤 Last opp Receivable Details
+                    </button>
+                </div>
+                <p style="color: var(--muted); font-size: 12px; margin-top: 8px;">Du kan velge flere filer samtidig (Ctrl+klikk eller Shift+klikk)</p>
+            </form>
+            <div id="uploadReceivableStatus" style="display: none; padding: 12px; border-radius: 10px; font-size: 14px; margin-bottom: 16px;"></div>
+        </div>
+
+        <div class="card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2 style="margin: 0;">Status</h2>
                 <div style="display: flex; gap: 8px; background: #0f1530; border-radius: 10px; padding: 4px; border: 1px solid rgba(255, 255, 255, 0.12);">
@@ -254,6 +272,9 @@
                     </button>
                     <button id="btnChurnView" onclick="switchView('churn')" style="margin: 0; padding: 8px 16px; border-radius: 8px; background: transparent; border: none; color: var(--muted); font-size: 13px;">
                         📉 Churn Reports
+                    </button>
+                    <button id="btnReceivableView" onclick="switchView('receivable')" style="margin: 0; padding: 8px 16px; border-radius: 8px; background: transparent; border: none; color: var(--muted); font-size: 13px;">
+                        📊 Receivable Details
                     </button>
                 </div>
             </div>
@@ -298,38 +319,67 @@
                     <!-- Will be populated by JavaScript -->
                 </div>
             </div>
+
+            <div id="receivableStatusView" style="display: none;">
+                <div class="info-box">
+                    📊 Oversikt over importerte Receivable Details fra accounting. Dette er den offisielle kilden for MRR-beregninger.
+                </div>
+
+                <div class="docs-grid" id="receivableDocsGrid">
+                    <!-- Will be populated by JavaScript -->
+                </div>
+            </div>
         </div>
 
     </div>
 
     <script>
         let churnData = null;
+        let receivableData = null;
 
-        // Switch between MRR and Churn views
+        // Switch between MRR, Churn, and Receivable views
         function switchView(view) {
             const mrrView = document.getElementById('mrrStatusView');
             const churnView = document.getElementById('churnStatusView');
+            const receivableView = document.getElementById('receivableStatusView');
             const btnMrr = document.getElementById('btnMrrView');
             const btnChurn = document.getElementById('btnChurnView');
+            const btnReceivable = document.getElementById('btnReceivableView');
+
+            // Hide all views
+            mrrView.style.display = 'none';
+            churnView.style.display = 'none';
+            receivableView.style.display = 'none';
+
+            // Reset all buttons
+            btnMrr.style.background = 'transparent';
+            btnMrr.style.color = 'var(--muted)';
+            btnChurn.style.background = 'transparent';
+            btnChurn.style.color = 'var(--muted)';
+            btnReceivable.style.background = 'transparent';
+            btnReceivable.style.color = 'var(--muted)';
 
             if (view === 'mrr') {
                 mrrView.style.display = 'block';
-                churnView.style.display = 'none';
                 btnMrr.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
                 btnMrr.style.color = 'white';
-                btnChurn.style.background = 'transparent';
-                btnChurn.style.color = 'var(--muted)';
-            } else {
-                mrrView.style.display = 'none';
+            } else if (view === 'churn') {
                 churnView.style.display = 'block';
                 btnChurn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
                 btnChurn.style.color = 'white';
-                btnMrr.style.background = 'transparent';
-                btnMrr.style.color = 'var(--muted)';
 
                 // Load churn data if not already loaded
                 if (!churnData) {
                     loadChurnData();
+                }
+            } else if (view === 'receivable') {
+                receivableView.style.display = 'block';
+                btnReceivable.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                btnReceivable.style.color = 'white';
+
+                // Load receivable data if not already loaded
+                if (!receivableData) {
+                    loadReceivableData();
                 }
             }
         }
@@ -378,6 +428,50 @@
 
         function formatNumber(num) {
             return Math.round(num).toLocaleString('no-NO');
+        }
+
+        // Load receivable data from API
+        async function loadReceivableData() {
+            try {
+                const response = await fetch('/api/accounting/receivables-status');
+                const data = await response.json();
+                receivableData = data.months;
+                displayReceivableData();
+            } catch (error) {
+                document.getElementById('receivableDocsGrid').innerHTML = '<p style="color: var(--bad);">Feil ved lasting av receivable-data</p>';
+            }
+        }
+
+        // Display receivable data
+        function displayReceivableData() {
+            const grid = document.getElementById('receivableDocsGrid');
+            let html = '';
+
+            if (receivableData.length === 0) {
+                html = '<p style="color: var(--muted);">Ingen Receivable Details importert ennå</p>';
+            } else {
+                receivableData.forEach(month => {
+                    const hasData = month.total_items > 0;
+                    html += `
+                        <div class="doc-card${hasData ? '' : ' missing'}" onclick="window.location.href='/api/accounting/month-drilldown?month=${month.month}'">
+                            <div class="doc-month">${month.month_name}</div>
+                            ${hasData ? `
+                                <div class="doc-mrr">${formatNumber(month.total_mrr)} kr MRR</div>
+                                <div class="doc-stats" style="color: var(--good);">Fakturert: ${formatNumber(month.invoice_mrr)} kr</div>
+                                <div class="doc-stats" style="color: var(--bad);">Kreditert: ${formatNumber(month.creditnote_mrr)} kr</div>
+                                <div class="doc-stats" style="margin-top: 8px;">${formatNumber(month.invoice_items)} fakturaer • ${formatNumber(month.creditnote_items)} kreditnotaer</div>
+                                <div class="doc-stats">${formatNumber(month.total_items)} items totalt</div>
+                                <div class="doc-date">Importert: ${month.updated_at}</div>
+                            ` : `
+                                <div class="missing-text">Ikke importert</div>
+                                <div class="doc-stats" style="color: var(--warn); margin-top: 8px;">Last opp Receivable Details</div>
+                            `}
+                        </div>
+                    `;
+                });
+            }
+
+            grid.innerHTML = html;
         }
 
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
@@ -520,6 +614,81 @@
                 statusDiv.style.color = 'var(--bad)';
                 const errorList = errors.map(e => `<li>${e}</li>`).join('');
                 statusDiv.innerHTML = `❌ ${successCount} OK, ${errorCount} feilet<br><br><strong>Feil:</strong><ul style="margin: 8px 0 0 20px; text-align: left;">${errorList}</ul>`;
+            }
+
+            // Reset form and reload page after 3 seconds (only if successful)
+            fileInput.value = '';
+            if (errorCount === 0) {
+                setTimeout(() => window.location.reload(), 3000);
+            }
+        });
+
+        // Handle receivable details upload
+        document.getElementById('uploadReceivableForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const fileInput = document.getElementById('receivableFile');
+            const statusDiv = document.getElementById('uploadReceivableStatus');
+
+            if (!fileInput.files || fileInput.files.length === 0) {
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                statusDiv.innerHTML = '❌ Vennligst velg minst én fil';
+                return;
+            }
+
+            const files = Array.from(fileInput.files);
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = 'rgba(159, 177, 255, 0.1)';
+            statusDiv.style.color = 'var(--muted)';
+            statusDiv.innerHTML = `⏳ Importerer ${files.length} receivable-rapport(er)...`;
+
+            let successCount = 0;
+            let errorCount = 0;
+            let totalItems = 0;
+            let errors = [];
+
+            for (const file of files) {
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    statusDiv.innerHTML = `⏳ Importerer ${file.name} (${successCount + errorCount + 1}/${files.length})...`;
+
+                    const response = await fetch('/api/accounting/import-receivables', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        successCount++;
+                        totalItems += data.items_imported || 0;
+                    } else {
+                        errorCount++;
+                        const errorMsg = data.detail || 'Ukjent feil';
+                        errors.push(`${file.name}: ${errorMsg}`);
+                        console.error(`Feil ved import av ${file.name}:`, errorMsg);
+                    }
+                } catch (error) {
+                    errorCount++;
+                    errors.push(`${file.name}: ${error.message}`);
+                    console.error(`Feil ved import av ${file.name}:`, error);
+                }
+            }
+
+            // Show final result
+            if (errorCount === 0) {
+                statusDiv.style.background = 'rgba(61, 220, 151, 0.1)';
+                statusDiv.style.color = 'var(--good)';
+                statusDiv.innerHTML = `✅ Importert ${successCount} fil(er)!<br><small>Totalt ${totalItems} items importert</small>`;
+            } else {
+                statusDiv.style.background = 'rgba(255, 107, 107, 0.1)';
+                statusDiv.style.color = 'var(--bad)';
+                const errorList = errors.map(e => `<li>${e}</li>`).join('');
+                statusDiv.innerHTML = `❌ ${successCount} OK, ${errorCount} feilet<br><small>Totalt ${totalItems} items importert</small><br><br><strong>Feil:</strong><ul style="margin: 8px 0 0 20px; text-align: left;">${errorList}</ul>`;
             }
 
             // Reset form and reload page after 3 seconds (only if successful)

@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="no" style="background: #0b1020;">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kategori Detaljer - {{ category }} ({{ month_name }})</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: #121933;
+            --ink: #e8ecff;
+            --muted: #9fb1ff;
+            --good: #3ddc97;
+            --bad: #ff6b6b;
+            --warn: #ffd166;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(180deg, #0b1020 0%, #0d1330 100%);
+            color: var(--ink);
+            min-height: 100vh;
+        }
+
+        {% include 'sidebar_styles.html' %}
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto 0 240px;
+            padding: 20px;
+        }
+
+        header {
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: var(--ink);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-recurring {
+            background: rgba(61, 220, 151, 0.2);
+            color: var(--good);
+        }
+
+        .badge-onetime {
+            background: rgba(255, 209, 102, 0.2);
+            color: var(--warn);
+        }
+
+        .back-link {
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .back-link:hover {
+            color: var(--ink);
+            border-color: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .kpi {
+            padding: 16px;
+            border-radius: 14px;
+            background: rgba(18, 25, 51, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .kpi h3 {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: var(--muted);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .kpi .val {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .kpi .subtext {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        .good .val { color: var(--good); }
+        .bad .val { color: var(--bad); }
+
+        .card {
+            background: rgba(18, 25, 51, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .export-btn {
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: var(--ink);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .export-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        table {
+            width: 100%;
+            min-width: 1400px;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th, td {
+            padding: 10px 8px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            white-space: nowrap;
+        }
+
+        th {
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            position: sticky;
+            top: 0;
+            background: var(--panel);
+            z-index: 10;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        th:hover { color: var(--ink); }
+        th.sortable:after { content: ' ↕'; opacity: 0.3; }
+        th.asc:after { content: ' ↑'; opacity: 1; }
+        th.desc:after { content: ' ↓'; opacity: 1; }
+
+        td { color: var(--ink); }
+        tr:hover { background: rgba(255, 255, 255, 0.05); }
+
+        .number { text-align: right; font-variant-numeric: tabular-nums; }
+        .positive { color: var(--good); }
+        .negative { color: var(--bad); }
+
+        .type-invoice { color: var(--good); }
+        .type-creditnote { color: var(--bad); }
+
+        .info-note {
+            background: rgba(61, 220, 151, 0.15);
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            color: var(--muted);
+            font-size: 14px;
+            border-left: 3px solid var(--good);
+        }
+    </style>
+</head>
+<body>
+    {% set active_page = 'accounting' %}
+    {% include 'sidebar.html' %}
+
+    <div class="container">
+        <header>
+            <div>
+                <h1>
+                    📊 Kategori drilldown: {{ category }} - {{ month_name }}
+                    <span class="badge {% if is_recurring %}badge-recurring{% else %}badge-onetime{% endif %}">
+                        {% if is_recurring %}RECURRING{% else %}ONE-TIME{% endif %}
+                    </span>
+                </h1>
+                <div style="color: var(--muted); font-size: 14px; margin-top: 8px;">
+                    Alle items for kategori "{{ category }}" i {{ month_name }}
+                </div>
+            </div>
+            <a href="/api/accounting/categories?month={{ month }}" class="back-link">
+                ← Tilbake til kategorier
+            </a>
+        </header>
+
+        <div class="info-note">
+            <strong>💡 Kategori:</strong> {{ category }}<br>
+            <strong>📊 Type:</strong> {% if is_recurring %}Recurring revenue (inkludert i MRR){% else %}Engangsinntekt (ikke i MRR){% endif %}
+        </div>
+
+        <div class="kpi-grid">
+            <div class="kpi {% if is_recurring %}good{% endif %}">
+                <h3>Total MRR</h3>
+                <div class="val">{{ "{:,.0f}".format(total_mrr) }} kr</div>
+                <div class="subtext">{% if is_recurring %}Recurring revenue{% else %}Ikke recurring{% endif %}</div>
+            </div>
+
+            <div class="kpi">
+                <h3>Antall Items</h3>
+                <div class="val">{{ item_count }}</div>
+                <div class="subtext">I denne kategorien</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>
+                <span>Items ({{ items|length }})</span>
+                <button class="export-btn" onclick="exportToExcel()">📥 Eksporter til Excel</button>
+            </h2>
+            <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+                <table id="itemsTable">
+                    <thead>
+                        <tr>
+                            <th class="sortable" onclick="sortTable(0)">Invoice #</th>
+                            <th class="sortable" onclick="sortTable(1)">Dato</th>
+                            <th class="sortable" onclick="sortTable(2)">Type</th>
+                            <th class="sortable" onclick="sortTable(3)">Kunde</th>
+                            <th class="sortable" onclick="sortTable(4)">Produkt</th>
+                            <th class="sortable" onclick="sortTable(5)">Fartøy</th>
+                            <th class="sortable" onclick="sortTable(6)">Kallesignal</th>
+                            <th class="sortable" onclick="sortTable(7)">Periode Start</th>
+                            <th class="sortable" onclick="sortTable(8)">Periode Slutt</th>
+                            <th class="sortable number" onclick="sortTable(9)">Måneder</th>
+                            <th class="sortable number" onclick="sortTable(10)">MRR/mnd</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr>
+                            <td>{{ item.transaction_number }}</td>
+                            <td>{{ item.transaction_date.strftime('%d.%m.%Y') if item.transaction_date else '-' }}</td>
+                            <td class="type-{{ item.transaction_type }}">
+                                {% if item.transaction_type == 'invoice' %}
+                                    📄 Faktura
+                                {% else %}
+                                    📋 Kreditnota
+                                {% endif %}
+                            </td>
+                            <td>{{ item.customer_name }}</td>
+                            <td>{{ item.item_name }}</td>
+                            <td>{{ item.vessel_name or '-' }}</td>
+                            <td>{{ item.call_sign or '-' }}</td>
+                            <td>{{ item.period_start_date.strftime('%d.%m.%Y') if item.period_start_date else '-' }}</td>
+                            <td>{{ item.period_end_date.strftime('%d.%m.%Y') if item.period_end_date else '-' }}</td>
+                            <td class="number">{{ item.period_months or '-' }}</td>
+                            <td class="number {% if item.mrr_per_month and item.mrr_per_month > 0 %}positive{% elif item.mrr_per_month and item.mrr_per_month < 0 %}negative{% endif %}">
+                                {{ "{:,.2f}".format(item.mrr_per_month) if item.mrr_per_month else '0.00' }} kr
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        // Table sorting
+        let sortDirection = {};
+
+        function sortTable(columnIndex) {
+            const table = document.getElementById('itemsTable');
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const headers = table.querySelectorAll('th');
+
+            // Toggle sort direction
+            sortDirection[columnIndex] = sortDirection[columnIndex] === 'asc' ? 'desc' : 'asc';
+
+            // Update header classes
+            headers.forEach((h, i) => {
+                h.classList.remove('asc', 'desc');
+                if (i === columnIndex) {
+                    h.classList.add(sortDirection[columnIndex]);
+                }
+            });
+
+            // Sort rows
+            rows.sort((a, b) => {
+                let aVal = a.cells[columnIndex].innerText;
+                let bVal = b.cells[columnIndex].innerText;
+
+                // Parse numbers
+                if (aVal.includes('kr') || aVal.match(/^[\d\s,.-]+$/)) {
+                    aVal = parseFloat(aVal.replace(/[^\d.-]/g, '')) || 0;
+                    bVal = parseFloat(bVal.replace(/[^\d.-]/g, '')) || 0;
+                    return sortDirection[columnIndex] === 'asc' ? aVal - bVal : bVal - aVal;
+                }
+
+                // Parse dates
+                if (aVal.match(/\d{2}\.\d{2}\.\d{4}/)) {
+                    const [dA, mA, yA] = aVal.split('.');
+                    const [dB, mB, yB] = bVal.split('.');
+                    const dateA = new Date(yA, mA - 1, dA);
+                    const dateB = new Date(yB, mB - 1, dB);
+                    return sortDirection[columnIndex] === 'asc' ? dateA - dateB : dateB - dateA;
+                }
+
+                // String comparison
+                return sortDirection[columnIndex] === 'asc'
+                    ? aVal.localeCompare(bVal, 'no')
+                    : bVal.localeCompare(aVal, 'no');
+            });
+
+            // Re-append sorted rows
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        // Export to Excel
+        function exportToExcel() {
+            const table = document.getElementById('itemsTable');
+            const wb = XLSX.utils.table_to_book(table, {sheet: "Category Details"});
+            const filename = `category_{{ category }}_{{ month }}_drilldown.xlsx`;
+            XLSX.writeFile(wb, filename);
+        }
+    </script>
+</body>
+</html>

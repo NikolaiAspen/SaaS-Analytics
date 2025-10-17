@@ -1,0 +1,49 @@
+
+========================================================================================================================
+ANALYSE: SUBSCRIPTION vs ACCOUNTING MRR GAP - SOMMER 2025
+========================================================================================================================
+
+
+========================================================================================================================
+MÅNED: 2025-06
+========================================================================================================================
+
+SAMMENLIGNING:
+--------------------------------------------------------------------------------
+Subscription MRR:        2,059,432 kr  (1698 kunder)
+Accounting MRR:          2,022,017 kr  (1766 kunder)
+Differanse:                -37,415 kr  (-1.82%)
+
+ACCOUNTING BREAKDOWN PER KATEGORI:
+--------------------------------------------------------------------------------
+Kategori                       Type                        MRR      Items
+--------------------------------------------------------------------------------
+Fangstdagbok                   RECURRING             1,590,965       2446
+VMS                            RECURRING               289,788        855
+Support                        RECURRING               141,264        133
+Hardware                       ENGANGS                  76,493          7
+Renter og Gebyr Inkasso        ENGANGS                   4,169          7
+Andre inntekter                ENGANGS                     450          3
+--------------------------------------------------------------------------------
+RECURRING TOTAL                                      2,022,017
+ENGANGS TOTAL                                           81,111
+TOTAL                                                2,103,128
+
+Traceback (most recent call last):
+  File "C:\Users\nikolai\Code\Saas_analyse\analyze_summer_2025_gap.py", line 174, in <module>
+    asyncio.run(analyze_summer_gap())
+  File "C:\Users\nikolai\AppData\Local\anaconda4\Lib\asyncio\runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\nikolai\AppData\Local\anaconda4\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nikolai\AppData\Local\anaconda4\Lib\asyncio\base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "C:\Users\nikolai\Code\Saas_analyse\analyze_summer_2025_gap.py", line 122, in analyze_summer_gap
+    print(f"\u2705 Recurring total matcher snapshot MRR")
+  File "C:\Users\nikolai\AppData\Local\anaconda4\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>
